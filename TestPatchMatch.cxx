@@ -26,33 +26,19 @@ clip_to_search_range( Vector2f in, BBox2f const& search_range ) {
 }
 
 template <int KX, int KY>
-float calculate_cost( MemoryStridingPixelAccessor<uint8> first,
-                      MemoryStridingPixelAccessor<uint8> second ) {
-  first.advance(-KX/2,-KY/2);
-  second.advance(-KX/2,-KY/2);
-  float sum = 0;
-  for ( int y = 0; y < KY; y++ ) {
-    for ( int x = 0; x < KX; x++ ) {
-      sum += abs(*first - *second);
-      first.next_col();
-      second.next_col();
-    }
-    first.advance(-KX,1);
-    second.advance(-KX,1);
-  }
-  return sum;
-}
-
-template <int KX, int KY>
 float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
                       ImageView<uint8> const& a, ImageView<uint8> const& b,
                       BBox2i const& a_roi, BBox2i const& b_roi ) {
-  ImageView<uint8>::pixel_accessor aacc = a.origin(), bacc = b.origin();
-  aacc.advance( -a_roi.min().x() + a_loc.x(),
-                -a_roi.min().y() + a_loc.y() );
-  bacc.advance( -b_roi.min().x() + a_loc.x() + disparity[0],
-                -b_roi.min().y() + a_loc.y() + disparity[1] );
-  return calculate_cost<KX,KY>(aacc,bacc);
+  BBox2i kernel_roi( -Vector2i(KX,KY)/2, Vector2i(KX,KY)/2 );
+
+  float result = sum_of_pixel_values(abs(crop( a, kernel_roi + a_loc + a_roi.min() ) -
+                                         crop( translate(b, -(a_loc.x() + disparity[0] + float(b_roi.min().x())),
+                                                         -(a_loc.y() + disparity[1] + float(b_roi.min().y())),
+                                                         ConstantEdgeExtension(),
+                                                         NearestPixelInterpolation() ),
+                                               kernel_roi ) ) );
+
+  return result;
 }
 
 // Propogates Left, Above, and against opposite disparity
