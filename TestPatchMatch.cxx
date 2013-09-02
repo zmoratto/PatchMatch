@@ -43,14 +43,14 @@ float calculate_cost( MemoryStridingPixelAccessor<uint8> first,
 }
 
 template <int KX, int KY>
-float calculate_cost( Vector2f const& a_loc, Vector2f const& b_loc,
+float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
                       ImageView<uint8> const& a, ImageView<uint8> const& b,
                       BBox2i const& a_roi, BBox2i const& b_roi ) {
   ImageView<uint8>::pixel_accessor aacc = a.origin(), bacc = b.origin();
   aacc.advance( -a_roi.min().x() + a_loc.x(),
                 -a_roi.min().y() + a_loc.y() );
-  bacc.advance( -b_roi.min().x() + b_loc.x(),
-                -b_roi.min().y() + b_loc.y() );
+  bacc.advance( -b_roi.min().x() + a_loc.x() + disparity[0],
+                -b_roi.min().y() + a_loc.y() + disparity[1] );
   return calculate_cost<KX,KY>(aacc,bacc);
 }
 
@@ -76,12 +76,12 @@ void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const&
 
       // TODO: This could be cached!
       float curr_cost =
-        calculate_cost<15,15>( loc, loc+d_new, a, b, a_roi, b_roi );
+        calculate_cost<15,15>( loc, d_new, a, b, a_roi, b_roi );
 
       // Comparing left
       if ( i > 0 ) {
         d_new = ab_disparity(i-i,j);
-        cost_new = calculate_cost<15,15>( loc, loc+d_new, a, b, a_roi, b_roi );
+        cost_new = calculate_cost<15,15>( loc, d_new, a, b, a_roi, b_roi );
         if ( cost_new < curr_cost ) {
           curr_cost = cost_new;
           ab_disparity(i,j) = d_new;
@@ -90,7 +90,7 @@ void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const&
       // Comparing top
       if ( j > 0 ) {
         d_new = ab_disparity(i,j-1);
-        cost_new = calculate_cost<15,15>( loc, loc+d_new, a, b, a_roi, b_roi );
+        cost_new = calculate_cost<15,15>( loc, d_new, a, b, a_roi, b_roi );
         if ( cost_new < curr_cost ) {
           curr_cost = cost_new;
           ab_disparity(i,j) = d_new;
@@ -101,7 +101,7 @@ void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const&
       Vector2f d = ab_disparity(i,j);
       if ( b_disp_size.contains( d + Vector2f(i,j) ) ) {
         d_new = -ba_disparity(i+d[0],j+d[1]);
-        cost_new = calculate_cost<15,15>( loc, loc+d_new, a, b, a_roi, b_roi );
+        cost_new = calculate_cost<15,15>( loc, d_new, a, b, a_roi, b_roi );
         if ( cost_new < curr_cost ) {
           curr_cost = cost_new;
           ab_disparity(i,j) = d_new;
@@ -129,12 +129,12 @@ void evaluate_odd_iteration( ImageView<uint8> const& a, ImageView<uint8> const& 
 
       // TODO: This could be cached!
       float curr_cost =
-        calculate_cost<15,15>( loc, loc+d_new, a, b, a_roi, b_roi );
+        calculate_cost<15,15>( loc, d_new, a, b, a_roi, b_roi );
 
       // Comparing right
       if ( i < ab_disparity.cols()-1 ) {
         d_new = ab_disparity(i+1,j);
-        cost_new = calculate_cost<15,15>( loc, loc+d_new, a, b, a_roi, b_roi );
+        cost_new = calculate_cost<15,15>( loc, d_new, a, b, a_roi, b_roi );
         if ( cost_new < curr_cost ) {
           curr_cost = cost_new;
           ab_disparity(i,j) = d_new;
@@ -143,7 +143,7 @@ void evaluate_odd_iteration( ImageView<uint8> const& a, ImageView<uint8> const& 
       // Comparing bottom
       if ( j < ab_disparity.rows()-1 ) {
         d_new = ab_disparity(i,j+1);
-        cost_new = calculate_cost<15,15>( loc, loc+d_new, a, b, a_roi, b_roi );
+        cost_new = calculate_cost<15,15>( loc, d_new, a, b, a_roi, b_roi );
         if ( cost_new < curr_cost ) {
           curr_cost = cost_new;
           ab_disparity(i,j) = d_new;
@@ -154,7 +154,7 @@ void evaluate_odd_iteration( ImageView<uint8> const& a, ImageView<uint8> const& 
       Vector2f d = ab_disparity(i,j);
       if ( b_disp_size.contains( d + Vector2f(i,j) ) ) {
         d_new = -ba_disparity(i+d[0],j+d[1]);
-        cost_new = calculate_cost<15,15>( loc, loc+d_new, a, b, a_roi, b_roi );
+        cost_new = calculate_cost<15,15>( loc, d_new, a, b, a_roi, b_roi );
         if ( cost_new < curr_cost ) {
           curr_cost = cost_new;
           ab_disparity(i,j) = d_new;
