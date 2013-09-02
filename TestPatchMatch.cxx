@@ -7,6 +7,7 @@
 
 #include <boost/random/linear_congruential.hpp>
 #include <boost/random/uniform_01.hpp>
+#include <boost/lexical_cast.hpp>
 
 namespace vw {
   template<> struct PixelFormatID<Vector2f> { static const PixelFormatEnum value = VW_PIXEL_GENERIC_2_CHANNEL; };
@@ -16,7 +17,7 @@ using namespace vw;
 
 // Possibly replace with something that keep resampling when out of bounds?
 inline Vector2f
-clip_to_search_range( Vector2f& in, BBox2f const& search_range ) {
+clip_to_search_range( Vector2f in, BBox2f const& search_range ) {
   if ( in.x() < search_range.min().x() ) in.x() = search_range.min().x();
   if ( in.x() > search_range.max().x() ) in.x() = search_range.max().x();
   if ( in.y() < search_range.min().y() ) in.y() = search_range.min().y();
@@ -62,8 +63,7 @@ float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
 void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const& b,
                               BBox2i const& a_roi, BBox2i const& b_roi,
                               ImageView<Vector2f>& ab_disparity,
-                              ImageView<Vector2f>& ba_disparity,
-                              BBox2f const& search_range ) {
+                              ImageView<Vector2f>& ba_disparity ) {
 
   BBox2i b_disp_size = bounding_box(ba_disparity);
 
@@ -116,8 +116,7 @@ void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const&
 void evaluate_odd_iteration( ImageView<uint8> const& a, ImageView<uint8> const& b,
                              BBox2i const& a_roi, BBox2i const& b_roi,
                              ImageView<Vector2f>& ab_disparity,
-                             ImageView<Vector2f>& ba_disparity,
-                             BBox2i const& search_range ) {
+                             ImageView<Vector2f>& ba_disparity ) {
   BBox2i b_disp_size = bounding_box(ba_disparity);
 
   // TODO: This could iterate by pixel accessor using ab_disparity
@@ -165,6 +164,40 @@ void evaluate_odd_iteration( ImageView<uint8> const& a, ImageView<uint8> const& 
   }
 }
 
+// Evaluates new random search
+void evaluate_new_search( ImageView<uint8> const& a, ImageView<uint8> const& b,
+                          BBox2i const& a_roi, BBox2i const& b_roi,
+                          BBox2f const& search_range, int iteration,
+                          boost::variate_generator<boost::rand48, boost::random::uniform_01<> >& random_source,
+                          ImageView<Vector2f>& ab_disparity ) {
+
+  Vector2f search_range_size = search_range.size();
+  search_range_size /= pow(2.0,iteration);
+  Vector2f search_range_size_half = search_range_size / 2.0;
+
+  // TODO: This could iterate by pixel accessor using ab_disparity
+  for ( size_t j = 0; j < ab_disparity.rows(); j++ ) {
+    for ( size_t i = 0; i < ab_disparity.cols(); i++ ) {
+      float cost_new;
+      Vector2f d_new = ab_disparity(i,j);
+      Vector2f loc(i,j);
+
+      // TODO: This could be cached!
+      float curr_cost =
+        calculate_cost<15,15>( loc, d_new, a, b, a_roi, b_roi );
+
+      // Evaluate a new possible disparity from a local random guess
+      d_new =
+        clip_to_search_range( d_new + elem_prod(Vector2f( random_source(), random_source()),search_range_size)
+                              - search_range_size_half, search_range );
+      cost_new = calculate_cost<15,15>( loc, d_new, a, b, a_roi, b_roi );
+      if ( cost_new < curr_cost ) {
+        ab_disparity(i,j) = d_new;
+      }
+    }
+  }
+}
+
 TEST( PatchMatch, Basic ) {
   ImageView<PixelGray<uint8> > left_image, right_image;
   read_image(left_image,"../SemiGlobalMatching/data/cones/im2.png");
@@ -207,42 +240,40 @@ TEST( PatchMatch, Basic ) {
   ImageView<uint8> left_expanded( crop(edge_extend(left_image), left_expanded_roi ) ),
     right_expanded( crop(edge_extend(right_image), right_expanded_roi ) );
 
-
-  // // Apply new search
-  // d_new =
-  //   clip_to_search_range(lr_disparity(i,j) + Vector2f(horizontal_search_noise(),vertical_search_noise()),search_range);;
-  // cost_new = calculate_cost<15,15>( loc, loc+d_new, left_expanded, right_expanded,
-  //                                   left_expanded_roi, right_expanded_roi );
-  // if ( cost_new < curr_cost ) {
-  //   curr_cost = cost_new;
-  //   lr_disparity(i,j) = d_new;
-  // }
-
-  evaluate_even_iteration( left_expanded, right_expanded,
+  for ( int iteration = 0; iteration < 10; iteration++ ) {
+    if ( iteration > 0 ) {
+      evaluate_new_search( left_expanded, right_expanded,
                            left_expanded_roi, right_expanded_roi,
-                           lr_disparity, rl_disparity, search_range );
-  evaluate_even_iteration( right_expanded, left_expanded,
+                           search_range, iteration, random_source, lr_disparity );
+      evaluate_new_search( right_expanded, left_expanded,
                            right_expanded_roi, left_expanded_roi,
-                           rl_disparity, lr_disparity, search_range_rl );
+                           search_range_rl, iteration, random_source, rl_disparity );
+    }
+    if ( iteration % 2 ) {
+      evaluate_even_iteration( left_expanded, right_expanded,
+                               left_expanded_roi, right_expanded_roi,
+                               lr_disparity, rl_disparity );
+      evaluate_even_iteration( right_expanded, left_expanded,
+                               right_expanded_roi, left_expanded_roi,
+                               rl_disparity, lr_disparity );
+    } else {
+      evaluate_odd_iteration( left_expanded, right_expanded,
+                              left_expanded_roi, right_expanded_roi,
+                              lr_disparity, rl_disparity );
+      evaluate_odd_iteration( right_expanded, left_expanded,
+                              right_expanded_roi, left_expanded_roi,
+                              rl_disparity, lr_disparity );
+    }
 
-  write_image("lr_1.tif",lr_disparity);
-  write_image("rl_1.tif",rl_disparity);
-
-  evaluate_odd_iteration( left_expanded, right_expanded,
-                          left_expanded_roi, right_expanded_roi,
-                          lr_disparity, rl_disparity, search_range );
-  evaluate_odd_iteration( right_expanded, left_expanded,
-                          right_expanded_roi, left_expanded_roi,
-                          rl_disparity, lr_disparity, search_range_rl );
-
-  write_image("lr_2.tif",lr_disparity);
-  write_image("rl_2.tif",rl_disparity);
-
-  iteration_search_size /= 2;
+    std::string index_str = boost::lexical_cast<std::string>(iteration);
+    write_image("lr_"+index_str+".tif",lr_disparity);
+    write_image("rl_"+index_str+".tif",rl_disparity);
+  }
 
   // Write out the final trusted disparity
   ImageView<PixelMask<Vector2f> > final_disparity =
     pixel_cast<PixelMask<Vector2f> >( lr_disparity );
+  write_image("before_consistency.tif", final_disparity );
   stereo::cross_corr_consistency_check( final_disparity,
                                         rl_disparity, 1.0, true );
   write_image("final_disparity.tif", final_disparity );
