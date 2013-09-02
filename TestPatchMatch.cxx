@@ -5,7 +5,7 @@
 #include <gtest/gtest.h>
 
 #include <boost/random/linear_congruential.hpp>
-#include <boost/random/uniform_real_distribution.hpp>
+#include <boost/random/uniform_01.hpp>
 
 namespace vw {
 template<> struct PixelFormatID<Vector2f> { static const PixelFormatEnum value = VW_PIXEL_GENERIC_2_CHANNEL; };
@@ -53,6 +53,22 @@ float calculate_cost( Vector2f const& a_loc, Vector2f const& b_loc,
   return calculate_cost<KX,KY>(aacc,bacc);
 }
 
+// Propogates Left, Above, and against opposite disparity
+void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const& b,
+                              BBox2i const& a_roi, BBox2i const& b_roi,
+                              ImageView<Vector2f>& ab_disparity,
+                              ImageView<Vector2f>& ba_disparity,
+                              BBox2i const& search_range ) {
+}
+
+// Propogates Right, Below, and against opposite disparity
+void evaluate_odd_iteration( ImageView<uint8> const& a, ImageView<uint8> const& b,
+                             BBox2i const& a_roi, BBox2i const& b_roi,
+                             ImageView<Vector2f>& ab_disparity,
+                             ImageView<Vector2f>& ba_disparity,
+                             BBox2i const& search_range ) {
+}
+
 TEST( PatchMatch, Basic ) {
   ImageView<PixelGray<uint8> > left_image, right_image;
   read_image(left_image,"../SemiGlobalMatching/data/cones/im2.png");
@@ -61,21 +77,20 @@ TEST( PatchMatch, Basic ) {
   // This are our disparity guess. The Vector2f represents a window offset
   ImageView<Vector2f> lr_disparity(left_image.cols(),left_image.rows()), rl_disparity(right_image.cols(),right_image.rows());
   boost::rand48 gen(std::rand());
-  typedef boost::variate_generator<boost::rand48, boost::random::uniform_real_distribution<> > vargen_type;
-  BBox2i search_range(Vector2i(-128,-1),Vector2i(0,1)); // inclusive
+  typedef boost::variate_generator<boost::rand48, boost::random::uniform_01<> > vargen_type;
+  BBox2f search_range(Vector2f(-128,-1),Vector2f(0,1)); // inclusive
   Vector2f iteration_search_size = Vector2f(search_range.size())/4.0;
-  vargen_type vertical_noise(gen, boost::random::uniform_real_distribution<>(search_range.min().y(),
-                                                                             search_range.max().y()));
-  vargen_type horizontal_noise(gen, boost::random::uniform_real_distribution<>(search_range.min().x(),
-                                                                               search_range.max().x()));
+  vargen_type random_source(gen, boost::random::uniform_01<>());
+  Vector2f search_range_size = search_range.size();
+
   for (size_t j = 0; j < lr_disparity.rows(); j++ ) {
     for (size_t i = 0; i < lr_disparity.cols(); i++ ) {
-      lr_disparity(i,j) = Vector2f(horizontal_noise(),vertical_noise());
+      lr_disparity(i,j) = elem_prod(Vector2f(random_source(),random_source()),search_range_size) + search_range.min();
     }
   }
   for (size_t j = 0; j < rl_disparity.rows(); j++ ) {
     for (size_t i = 0; i < rl_disparity.cols(); i++ ) {
-      rl_disparity(i,j) = Vector2f(-horizontal_noise(),-vertical_noise());
+      rl_disparity(i,j) = elem_prod(Vector2f(random_source(),random_source()),search_range_size) - search_range.max();
     }
   }
 
@@ -94,14 +109,6 @@ TEST( PatchMatch, Basic ) {
   right_expanded_roi.max() += search_range.max();
   ImageView<uint8> left_expanded( crop(edge_extend(left_image), left_expanded_roi ) ),
     right_expanded( crop(edge_extend(right_image), right_expanded_roi ) );
-
-  vargen_type vertical_search_noise(gen, boost::random::uniform_real_distribution<>( -iteration_search_size.x(),
-                                                                                     iteration_search_size.x() ) );
-  vargen_type horizontal_search_noise(gen, boost::random::uniform_real_distribution<>( -iteration_search_size.y(),
-                                                                                       iteration_search_size.y() ) );
-
-  std::cout << lr_costs(0,0) << std::endl;
-  std::cout << lr_disparity(0,0) << std::endl;
 
   // Propogation 0 LR
   for ( size_t j = 0; j < lr_disparity.rows(); j++ ) {
@@ -147,20 +154,18 @@ TEST( PatchMatch, Basic ) {
         }
       }
 
-      // Apply new search
-      d_new =
-        clip_to_search_range(lr_disparity(i,j) + Vector2f(horizontal_search_noise(),vertical_search_noise()),search_range);;
-      cost_new = calculate_cost<15,15>( loc, loc+d_new, left_expanded, right_expanded,
-                                        left_expanded_roi, right_expanded_roi );
-      if ( cost_new < curr_cost ) {
-        curr_cost = cost_new;
-        lr_disparity(i,j) = d_new;
-      }
     }
   }
 
-  std::cout << lr_costs(0,0) << std::endl;
-  std::cout << lr_disparity(0,0) << std::endl;
+      // // Apply new search
+      // d_new =
+      //   clip_to_search_range(lr_disparity(i,j) + Vector2f(horizontal_search_noise(),vertical_search_noise()),search_range);;
+      // cost_new = calculate_cost<15,15>( loc, loc+d_new, left_expanded, right_expanded,
+      //                                   left_expanded_roi, right_expanded_roi );
+      // if ( cost_new < curr_cost ) {
+      //   curr_cost = cost_new;
+      //   lr_disparity(i,j) = d_new;
+      // }
 
   // Propogation 0 RL
 

@@ -12,15 +12,18 @@ LDFLAGS += -L$(BDIR)/lib -lboost_system-mt-1_54 -lboost_thread-mt-1_54 -lboost_f
 %.o : %.cxx
 	$(CXX) -c -o $@ $(CXXFLAGS) -I$(MACPORTS)/include $^
 
-EXECS = TestSemiGlobalMatching
+EXECS = TestPatchMatch
 
 all: $(EXECS)
 
-TestSemiGlobalMatching : TestSemiGlobalMatching.o SemiGlobalMatching.o
+TestPatchMatch : TestPatchMatch.o
 	$(CXX) -o $@ $(CXXFLAGS) $(LDFLAGS) $^
 
 clean:
-	rm -f *.o *~ $(EXECS) effect*png my*png
+	rm -f *.o *~ $(EXECS) effect*png my*png *.tif
 
 check: $(EXECS)
-	./TestSemiGlobalMatching
+	./TestPatchMatch
+	parallel gdal_translate -b 1 -scale -ot Byte {} {.}.b-H.tif ::: lr_?.tif rl_?.tif
+	parallel gdal_translate -b 2 -scale -ot Byte {} {.}.b-V.tif ::: lr_?.tif rl_?.tif
+

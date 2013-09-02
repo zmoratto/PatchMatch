@@ -3,6 +3,8 @@
 *.zip
 *.o
 
-TestSemiGlobalMatching
+TestPatchMatch
 effect*.png
 my*.png
+*.tif
+test
