@@ -118,6 +118,51 @@ void evaluate_odd_iteration( ImageView<uint8> const& a, ImageView<uint8> const& 
                              ImageView<Vector2f>& ab_disparity,
                              ImageView<Vector2f>& ba_disparity,
                              BBox2i const& search_range ) {
+  BBox2i b_disp_size = bounding_box(ba_disparity);
+
+  // TODO: This could iterate by pixel accessor using ab_disparity
+  for ( size_t j = ab_disparity.rows()-1; j < ab_disparity.rows(); j-- ) {
+    for ( size_t i = ab_disparity.cols()-1; i < ab_disparity.cols(); i-- ) {
+      float cost_new;
+      Vector2f d_new = ab_disparity(i,j);
+      Vector2f loc(i,j);
+
+      // TODO: This could be cached!
+      float curr_cost =
+        calculate_cost<15,15>( loc, loc+d_new, a, b, a_roi, b_roi );
+
+      // Comparing right
+      if ( i < ab_disparity.cols()-1 ) {
+        d_new = ab_disparity(i+1,j);
+        cost_new = calculate_cost<15,15>( loc, loc+d_new, a, b, a_roi, b_roi );
+        if ( cost_new < curr_cost ) {
+          curr_cost = cost_new;
+          ab_disparity(i,j) = d_new;
+        }
+      }
+      // Comparing bottom
+      if ( j < ab_disparity.rows()-1 ) {
+        d_new = ab_disparity(i,j+1);
+        cost_new = calculate_cost<15,15>( loc, loc+d_new, a, b, a_roi, b_roi );
+        if ( cost_new < curr_cost ) {
+          curr_cost = cost_new;
+          ab_disparity(i,j) = d_new;
+        }
+      }
+
+      // Comparing against RL
+      Vector2f d = ab_disparity(i,j);
+      if ( b_disp_size.contains( d + Vector2f(i,j) ) ) {
+        d_new = -ba_disparity(i+d[0],j+d[1]);
+        cost_new = calculate_cost<15,15>( loc, loc+d_new, a, b, a_roi, b_roi );
+        if ( cost_new < curr_cost ) {
+          curr_cost = cost_new;
+          ab_disparity(i,j) = d_new;
+        }
+      }
+
+    }
+  }
 }
 
 TEST( PatchMatch, Basic ) {
@@ -182,6 +227,16 @@ TEST( PatchMatch, Basic ) {
 
   write_image("lr_1.tif",lr_disparity);
   write_image("rl_1.tif",rl_disparity);
+
+  evaluate_odd_iteration( left_expanded, right_expanded,
+                          left_expanded_roi, right_expanded_roi,
+                          lr_disparity, rl_disparity, search_range );
+  evaluate_odd_iteration( right_expanded, left_expanded,
+                          right_expanded_roi, left_expanded_roi,
+                          rl_disparity, lr_disparity, search_range_rl );
+
+  write_image("lr_2.tif",lr_disparity);
+  write_image("rl_2.tif",rl_disparity);
 
   iteration_search_size /= 2;
 
