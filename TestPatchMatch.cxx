@@ -26,10 +26,10 @@ clip_to_search_range( Vector2f in, BBox2f const& search_range ) {
 }
 
 template <class ImageT, class TransformT>
-TransformView<InterpolationView<ImageT, BicubicInterpolation>, TransformT>
+TransformView<InterpolationView<ImageT, BilinearInterpolation>, TransformT>
 inline transform_no_edge( ImageViewBase<ImageT> const& v,
                           TransformT const& transform_func ) {
-  return TransformView<InterpolationView<ImageT, BicubicInterpolation>, TransformT>( InterpolationView<ImageT, BicubicInterpolation>( v.impl() ), transform_func );
+  return TransformView<InterpolationView<ImageT, BilinearInterpolation>, TransformT>( InterpolationView<ImageT, BilinearInterpolation>( v.impl() ), transform_func );
 }
 
 // To avoid casting higher for uint8 subtraction
@@ -47,10 +47,11 @@ float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
 
   float result =
     sum_of_pixel_values
-    (per_pixel_filter(crop( a, kernel_roi + a_loc - a_roi.min() ),
-                      crop( transform_no_edge(b, TranslateTransform(-(a_loc.x() + disparity[0] - float(b_roi.min().x())),
-                                                                    -(a_loc.y() + disparity[1] - float(b_roi.min().y())))),
-                            kernel_roi ), AbsDiffFunc<uint8>() ));
+    (per_pixel_filter
+     (crop( a, kernel_roi + a_loc - a_roi.min() ),
+      crop( transform_no_edge(b, TranslateTransform(-(a_loc.x() + disparity[0] - float(b_roi.min().x())),
+                                                    -(a_loc.y() + disparity[1] - float(b_roi.min().y())))),
+            kernel_roi ), AbsDiffFunc<uint8>() ));
   return result;
 }
 
@@ -243,12 +244,12 @@ TEST( PatchMatch, Basic ) {
   left_expanded_roi.max() -= search_range.min();
   right_expanded_roi.min() += search_range.min();
   right_expanded_roi.max() += search_range.max();
-  left_expanded_roi.expand( BicubicInterpolation::pixel_buffer );
-  right_expanded_roi.expand( BicubicInterpolation::pixel_buffer );
+  left_expanded_roi.expand( BilinearInterpolation::pixel_buffer );
+  right_expanded_roi.expand( BilinearInterpolation::pixel_buffer );
   ImageView<uint8> left_expanded( crop(edge_extend(left_image), left_expanded_roi ) ),
     right_expanded( crop(edge_extend(right_image), right_expanded_roi ) );
 
-  for ( int iteration = 0; iteration < 10; iteration++ ) {
+  for ( int iteration = 0; iteration < 7; iteration++ ) {
     if ( iteration > 0 ) {
       evaluate_new_search( left_expanded, right_expanded,
                            left_expanded_roi, right_expanded_roi,
@@ -279,7 +280,7 @@ TEST( PatchMatch, Basic ) {
                               rl_disparity, lr_disparity );
     }
 
-    std::string index_str = boost::lexical_cast<std::string>(iteration);
+    std::string index_str = boost::lexical_cast<std::string>(iteration+1);
     write_image("lr_"+index_str+".tif",lr_disparity);
     write_image("rl_"+index_str+".tif",rl_disparity);
   }
@@ -287,7 +288,6 @@ TEST( PatchMatch, Basic ) {
   // Write out the final trusted disparity
   ImageView<PixelMask<Vector2f> > final_disparity =
     pixel_cast<PixelMask<Vector2f> >( lr_disparity );
-  write_image("before_consistency.tif", final_disparity );
   stereo::cross_corr_consistency_check( final_disparity,
                                         rl_disparity, 1.0, true );
   write_image("final_disparity.tif", final_disparity );
