@@ -11,9 +11,12 @@
 
 namespace vw {
   template<> struct PixelFormatID<Vector2f> { static const PixelFormatEnum value = VW_PIXEL_GENERIC_2_CHANNEL; };
+  template<> struct PixelFormatID<Vector4f> { static const PixelFormatEnum value = VW_PIXEL_GENERIC_4_CHANNEL; };
 }
 
 using namespace vw;
+
+typedef Vector4f DispT;
 
 // Possibly replace with something that keep resampling when out of bounds?
 inline Vector2f
@@ -40,6 +43,14 @@ struct AbsDiffFunc : public vw::ReturnFixedType<PixelT> {
   }
 };
 
+// Casting function
+struct CastVec2fFunc : public vw::ReturnFixedType<PixelMask<Vector2f> > {
+  inline PixelMask<Vector2f> operator()( Vector4f const& a ) const {
+    return subvector(a,0,2);
+  }
+};
+
+// Simple square kernels
 float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
                       ImageView<uint8> const& a, ImageView<uint8> const& b,
                       BBox2i const& a_roi, BBox2i const& b_roi, Vector2i const& kernel_size ) {
@@ -55,6 +66,24 @@ float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
   return result;
 }
 
+// Parallelogram version
+float calculate_cost( Vector2f const& a_loc, Vector4f const& disparity,
+                      ImageView<uint8> const& a, ImageView<uint8> const& b,
+                      BBox2i const& a_roi, BBox2i const& b_roi, Vector2i const& kernel_size ) {
+  BBox2i kernel_roi( -kernel_size/2, kernel_size/2 + Vector2i(1,1) );
+
+  Matrix2x2f scaling(1/disparity[2],0,0,1/disparity[3]);
+  Vector2f b_offset = a_loc + subvector(disparity,0,2) - Vector2f(b_roi.min());
+
+  float result =
+    sum_of_pixel_values
+    (per_pixel_filter
+     (crop( a, kernel_roi + a_loc - a_roi.min() ),
+      crop( transform_no_edge(b, AffineTransform( scaling, -b_offset ) ),
+            kernel_roi ), AbsDiffFunc<uint8>() ));
+  return result;
+}
+
 // Propogates Left, Above, and against opposite disparity
 //
 // Remember a and ab_disparity don't have the same dimensions. A has
@@ -63,8 +92,8 @@ float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
 void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const& b,
                               BBox2i const& a_roi, BBox2i const& b_roi,
                               Vector2i const& kernel_size,
-                              ImageView<Vector2f>& ab_disparity,
-                              ImageView<Vector2f>& ba_disparity ) {
+                              ImageView<DispT>& ab_disparity,
+                              ImageView<DispT>& ba_disparity ) {
 
   BBox2i b_disp_size = bounding_box(ba_disparity);
 
@@ -72,7 +101,7 @@ void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const&
   for ( size_t j = 0; j < ab_disparity.rows(); j++ ) {
     for ( size_t i = 0; i < ab_disparity.cols(); i++ ) {
       float cost_new;
-      Vector2f d_new = ab_disparity(i,j);
+      DispT d_new = ab_disparity(i,j);
       Vector2f loc(i,j);
 
       // TODO: This could be cached!
@@ -99,9 +128,10 @@ void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const&
       }
 
       // Comparing against RL
-      Vector2f d = ab_disparity(i,j);
-      if ( b_disp_size.contains( d + Vector2f(i,j) ) ) {
-        d_new = -ba_disparity(i+d[0],j+d[1]);
+      Vector2f d = subvector(ab_disparity(i,j),0,2);
+      if ( b_disp_size.contains( d + loc ) ) {
+        d_new = ba_disparity(i+d[0],j+d[1]);
+        subvector(d_new,0,2) = -subvector(d_new,0,2);
         cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
         if ( cost_new < curr_cost ) {
           curr_cost = cost_new;
@@ -117,15 +147,15 @@ void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const&
 void evaluate_odd_iteration( ImageView<uint8> const& a, ImageView<uint8> const& b,
                              BBox2i const& a_roi, BBox2i const& b_roi,
                              Vector2i const& kernel_size,
-                             ImageView<Vector2f>& ab_disparity,
-                             ImageView<Vector2f>& ba_disparity ) {
+                             ImageView<DispT>& ab_disparity,
+                             ImageView<DispT>& ba_disparity ) {
   BBox2i b_disp_size = bounding_box(ba_disparity);
 
   // TODO: This could iterate by pixel accessor using ab_disparity
   for ( size_t j = ab_disparity.rows()-1; j < ab_disparity.rows(); j-- ) {
     for ( size_t i = ab_disparity.cols()-1; i < ab_disparity.cols(); i-- ) {
       float cost_new;
-      Vector2f d_new = ab_disparity(i,j);
+      DispT d_new = ab_disparity(i,j);
       Vector2f loc(i,j);
 
       // TODO: This could be cached!
@@ -152,9 +182,10 @@ void evaluate_odd_iteration( ImageView<uint8> const& a, ImageView<uint8> const& 
       }
 
       // Comparing against RL
-      Vector2f d = ab_disparity(i,j);
-      if ( b_disp_size.contains( d + Vector2f(i,j) ) ) {
-        d_new = -ba_disparity(i+d[0],j+d[1]);
+      Vector2f d = subvector(ab_disparity(i,j),0,2);
+      if ( b_disp_size.contains( d + loc ) ) {
+        d_new = ba_disparity(i+d[0],j+d[1]);
+        subvector(d_new,0,2) = -subvector(d_new,0,2);
         cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
         if ( cost_new < curr_cost ) {
           curr_cost = cost_new;
@@ -171,10 +202,11 @@ void evaluate_new_search( ImageView<uint8> const& a, ImageView<uint8> const& b,
                           BBox2i const& a_roi, BBox2i const& b_roi,
                           BBox2f const& search_range, Vector2i const& kernel_size, int iteration,
                           boost::variate_generator<boost::rand48, boost::random::uniform_01<> >& random_source,
-                          ImageView<Vector2f>& ab_disparity ) {
+                          ImageView<DispT>& ab_disparity ) {
 
   Vector2f search_range_size = search_range.size();
-  search_range_size /= pow(2.0,iteration);
+  float scaling_size = 1.0/pow(2.0,iteration);
+  search_range_size *= scaling_size;
   Vector2f search_range_size_half = search_range_size / 2.0;
 
   std::cout << search_range_size_half << std::endl;
@@ -183,7 +215,7 @@ void evaluate_new_search( ImageView<uint8> const& a, ImageView<uint8> const& b,
   for ( size_t j = 0; j < ab_disparity.rows(); j++ ) {
     for ( size_t i = 0; i < ab_disparity.cols(); i++ ) {
       float cost_new;
-      Vector2f d_new = ab_disparity(i,j);
+      DispT d_new = ab_disparity(i,j);
       Vector2f loc(i,j);
 
       // TODO: This could be cached!
@@ -191,9 +223,14 @@ void evaluate_new_search( ImageView<uint8> const& a, ImageView<uint8> const& b,
         calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
 
       // Evaluate a new possible disparity from a local random guess
-      d_new =
-        clip_to_search_range( d_new + elem_prod(Vector2f( random_source(), random_source()),search_range_size)
+      Vector2f translation =
+        clip_to_search_range( subvector(d_new,0,2) + elem_prod(Vector2f( random_source(), random_source()),search_range_size)
                               - search_range_size_half, search_range );
+      subvector(d_new,0,2) = translation;
+      d_new[2] += random_source()*scaling_size - scaling_size/2;
+      d_new[3] += random_source()*scaling_size - scaling_size/2;
+      d_new[2] = std::min(1.0f,std::max(0.01f,d_new[2]));
+      d_new[3] = std::min(1.0f,std::max(0.01f,d_new[3]));
       cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
       if ( cost_new < curr_cost ) {
         ab_disparity(i,j) = d_new;
@@ -208,7 +245,7 @@ TEST( PatchMatch, Basic ) {
   read_image(right_image,"../SemiGlobalMatching/data/cones/im6.png");
 
   // This are our disparity guess. The Vector2f represents a window offset
-  ImageView<Vector2f> lr_disparity(left_image.cols(),left_image.rows()), rl_disparity(right_image.cols(),right_image.rows());
+  ImageView<DispT> lr_disparity(left_image.cols(),left_image.rows()), rl_disparity(right_image.cols(),right_image.rows());
   boost::rand48 gen(std::rand());
   typedef boost::variate_generator<boost::rand48, boost::random::uniform_01<> > vargen_type;
   BBox2f search_range(Vector2f(-128,-1),Vector2f(0,1)); // inclusive
@@ -220,12 +257,20 @@ TEST( PatchMatch, Basic ) {
 
   for (size_t j = 0; j < lr_disparity.rows(); j++ ) {
     for (size_t i = 0; i < lr_disparity.cols(); i++ ) {
-      lr_disparity(i,j) = elem_prod(Vector2f(random_source(),random_source()),search_range_size) + search_range.min();
+      DispT result;
+      subvector(result,0,2) = elem_prod(Vector2f(random_source(),random_source()),search_range_size) + search_range.min();
+      result[2] = random_source();
+      result[3] = random_source();
+      lr_disparity(i,j) = result;
     }
   }
   for (size_t j = 0; j < rl_disparity.rows(); j++ ) {
     for (size_t i = 0; i < rl_disparity.cols(); i++ ) {
-      rl_disparity(i,j) = elem_prod(Vector2f(random_source(),random_source()),search_range_size) - search_range.max();
+      DispT result;
+      subvector(result,0,2) = elem_prod(Vector2f(random_source(),random_source()),search_range_size) - search_range.max();
+      result[2] = random_source();
+      result[3] = random_source();
+      rl_disparity(i,j) = result;
     }
   }
 
@@ -249,7 +294,7 @@ TEST( PatchMatch, Basic ) {
   ImageView<uint8> left_expanded( crop(edge_extend(left_image), left_expanded_roi ) ),
     right_expanded( crop(edge_extend(right_image), right_expanded_roi ) );
 
-  for ( int iteration = 0; iteration < 7; iteration++ ) {
+  for ( int iteration = 0; iteration < 20; iteration++ ) {
     if ( iteration > 0 ) {
       evaluate_new_search( left_expanded, right_expanded,
                            left_expanded_roi, right_expanded_roi,
@@ -287,7 +332,7 @@ TEST( PatchMatch, Basic ) {
 
   // Write out the final trusted disparity
   ImageView<PixelMask<Vector2f> > final_disparity =
-    pixel_cast<PixelMask<Vector2f> >( lr_disparity );
+    per_pixel_filter( lr_disparity, CastVec2fFunc() );
   stereo::cross_corr_consistency_check( final_disparity,
                                         rl_disparity, 1.0, true );
   write_image("final_disparity.tif", final_disparity );

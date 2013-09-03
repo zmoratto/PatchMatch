@@ -24,6 +24,8 @@ clean:
 
 check: $(EXECS)
 	./TestPatchMatch
-	parallel gdal_translate -b 1 -scale -ot Byte {} {.}.b-H.tif ::: lr_?.tif rl_?.tif
-	parallel gdal_translate -b 2 -scale -ot Byte {} {.}.b-V.tif ::: lr_?.tif rl_?.tif
+	parallel gdal_translate -b 1 -scale -ot Byte {} {.}.b-H.tif ::: lr_?.tif rl_?.tif lr_??.tif rl_??.tif
+	parallel gdal_translate -b 2 -scale -ot Byte {} {.}.b-V.tif ::: lr_?.tif rl_?.tif lr_??.tif rl_??.tif
+	parallel gdal_translate -b 3 -scale -ot Byte {} {.}.b-Nx.tif ::: lr_?.tif rl_?.tif lr_??.tif rl_??.tif
+	parallel gdal_translate -b 4 -scale -ot Byte {} {.}.b-Ny.tif ::: lr_?.tif rl_?.tif lr_??.tif rl_??.tif
 
