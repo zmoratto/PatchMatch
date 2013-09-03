@@ -25,16 +25,21 @@ clip_to_search_range( Vector2f in, BBox2f const& search_range ) {
   return in;
 }
 
+template <class ImageT, class TransformT>
+TransformView<InterpolationView<ImageT, BicubicInterpolation>, TransformT>
+inline transform_no_edge( ImageViewBase<ImageT> const& v,
+                          TransformT const& transform_func ) {
+  return TransformView<InterpolationView<ImageT, BicubicInterpolation>, TransformT>( InterpolationView<ImageT, BicubicInterpolation>( v.impl() ), transform_func );
+}
+
 float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
                       ImageView<uint8> const& a, ImageView<uint8> const& b,
                       BBox2i const& a_roi, BBox2i const& b_roi, Vector2i const& kernel_size ) {
   BBox2i kernel_roi( -kernel_size/2, kernel_size/2 + Vector2i(1,1) );
 
   float result = sum_of_pixel_values(abs(channel_cast<int16>(crop( a, kernel_roi + a_loc - a_roi.min() )) -
-                                         channel_cast<int16>(crop( translate(b, -(a_loc.x() + disparity[0] - float(b_roi.min().x())),
-                                                                             -(a_loc.y() + disparity[1] - float(b_roi.min().y())),
-                                                                             ConstantEdgeExtension(),
-                                                                             BicubicInterpolation() ),
+                                         channel_cast<int16>(crop( transform_no_edge(b, TranslateTransform(-(a_loc.x() + disparity[0] - float(b_roi.min().x())),
+                                                                                                           -(a_loc.y() + disparity[1] - float(b_roi.min().y())))),
                                                                    kernel_roi ) ) ) );
   return result;
 }
@@ -161,6 +166,8 @@ void evaluate_new_search( ImageView<uint8> const& a, ImageView<uint8> const& b,
   search_range_size /= pow(2.0,iteration);
   Vector2f search_range_size_half = search_range_size / 2.0;
 
+  std::cout << search_range_size_half << std::endl;
+
   // TODO: This could iterate by pixel accessor using ab_disparity
   for ( size_t j = 0; j < ab_disparity.rows(); j++ ) {
     for ( size_t i = 0; i < ab_disparity.cols(); i++ ) {
@@ -226,6 +233,8 @@ TEST( PatchMatch, Basic ) {
   left_expanded_roi.max() -= search_range.min();
   right_expanded_roi.min() += search_range.min();
   right_expanded_roi.max() += search_range.max();
+  left_expanded_roi.expand( BicubicInterpolation::pixel_buffer );
+  right_expanded_roi.expand( BicubicInterpolation::pixel_buffer );
   ImageView<uint8> left_expanded( crop(edge_extend(left_image), left_expanded_roi ) ),
     right_expanded( crop(edge_extend(right_image), right_expanded_roi ) );
 

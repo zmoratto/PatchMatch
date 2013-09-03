@@ -2,7 +2,7 @@ VWDIR=$(HOME)/projects/VisionWorkbench/build
 MACPORTS=$(HOME)/macports
 BDIR=$(HOME)/packages/base_system
 
-CXXFLAGS += -g -O3 -I$(BDIR)/include -I$(BDIR)/include/boost-1_54 -I$(VWDIR)/include -I$(PWD)
+CXXFLAGS += -g -O3 -I$(BDIR)/include -I$(BDIR)/include/boost-1_54 -I$(VWDIR)/include -I$(PWD) -ffast-math
 
 LDFLAGS += -L$(BDIR)/lib -lboost_system-mt-1_54 -lboost_thread-mt-1_54 -lboost_filesystem-mt-1_54 -L$(VWDIR)/lib -lvwCore -lvwMath -lvwFileIO -lvwImage -L$(MACPORTS)/lib -lgtest
 
