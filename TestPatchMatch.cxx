@@ -34,7 +34,7 @@ float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
                                          channel_cast<int16>(crop( translate(b, -(a_loc.x() + disparity[0] - float(b_roi.min().x())),
                                                                              -(a_loc.y() + disparity[1] - float(b_roi.min().y())),
                                                                              ConstantEdgeExtension(),
-                                                                             NearestPixelInterpolation() ),
+                                                                             BicubicInterpolation() ),
                                                                    kernel_roi ) ) ) );
   return result;
 }
