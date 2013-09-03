@@ -32,15 +32,25 @@ inline transform_no_edge( ImageViewBase<ImageT> const& v,
   return TransformView<InterpolationView<ImageT, BicubicInterpolation>, TransformT>( InterpolationView<ImageT, BicubicInterpolation>( v.impl() ), transform_func );
 }
 
+// To avoid casting higher for uint8 subtraction
+template <class PixelT>
+struct AbsDiffFunc : public vw::ReturnFixedType<PixelT> {
+  inline PixelT operator()( PixelT const& a, PixelT const& b ) const {
+    return abs( a - b );
+  }
+};
+
 float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
                       ImageView<uint8> const& a, ImageView<uint8> const& b,
                       BBox2i const& a_roi, BBox2i const& b_roi, Vector2i const& kernel_size ) {
   BBox2i kernel_roi( -kernel_size/2, kernel_size/2 + Vector2i(1,1) );
 
-  float result = sum_of_pixel_values(abs(channel_cast<int16>(crop( a, kernel_roi + a_loc - a_roi.min() )) -
-                                         channel_cast<int16>(crop( transform_no_edge(b, TranslateTransform(-(a_loc.x() + disparity[0] - float(b_roi.min().x())),
-                                                                                                           -(a_loc.y() + disparity[1] - float(b_roi.min().y())))),
-                                                                   kernel_roi ) ) ) );
+  float result =
+    sum_of_pixel_values
+    (per_pixel_filter(crop( a, kernel_roi + a_loc - a_roi.min() ),
+                      crop( transform_no_edge(b, TranslateTransform(-(a_loc.x() + disparity[0] - float(b_roi.min().x())),
+                                                                    -(a_loc.y() + disparity[1] - float(b_roi.min().y())))),
+                            kernel_roi ), AbsDiffFunc<uint8>() ));
   return result;
 }
 
