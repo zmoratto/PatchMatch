@@ -9,6 +9,8 @@
 #include <boost/random/uniform_01.hpp>
 #include <boost/lexical_cast.hpp>
 
+#include <PatchMatch.h>
+
 namespace vw {
   template<> struct PixelFormatID<Vector2f> { static const PixelFormatEnum value = VW_PIXEL_GENERIC_2_CHANNEL; };
   template<> struct PixelFormatID<Vector4f> { static const PixelFormatEnum value = VW_PIXEL_GENERIC_4_CHANNEL; };
@@ -16,7 +18,25 @@ namespace vw {
 
 using namespace vw;
 
-typedef Vector4f DispT;
+typedef Vector2f DispT;
+
+ImageView<DispT>* LRGLOBAL, *RLGLOBAL;
+
+void write_frame( ImageView<DispT> const& lr, ImageView<DispT> const& rl ) {
+  static int count = 0;
+
+  char buffer[7];
+  sprintf(buffer,"%07d", count);
+  ImageView<uint8> composite( lr.cols()+rl.cols(), lr.rows() );
+  crop( composite, bounding_box( lr ) ) =
+    clamp(select_channel(lr,0)*(-4),0,255);
+  crop( composite, bounding_box( rl ) + Vector2i(lr.cols(),0) ) =
+    clamp(255-select_channel(rl,0)*4,0,255);
+
+  write_image("pmvideo" + std::string(buffer)+".png", composite );
+
+  count++;
+}
 
 // Possibly replace with something that keep resampling when out of bounds?
 inline Vector2f
@@ -140,6 +160,9 @@ void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const&
       }
 
     }
+    if ( j%10 == 0 ) {
+      write_frame( *LRGLOBAL, *RLGLOBAL );
+    }
   }
 }
 
@@ -194,6 +217,9 @@ void evaluate_odd_iteration( ImageView<uint8> const& a, ImageView<uint8> const& 
       }
 
     }
+    if ( j%10 == 0 ) {
+      write_frame( *LRGLOBAL, *RLGLOBAL );
+    }
   }
 }
 
@@ -227,14 +253,17 @@ void evaluate_new_search( ImageView<uint8> const& a, ImageView<uint8> const& b,
         clip_to_search_range( subvector(d_new,0,2) + elem_prod(Vector2f( random_source(), random_source()),search_range_size)
                               - search_range_size_half, search_range );
       subvector(d_new,0,2) = translation;
-      d_new[2] += random_source()*scaling_size - scaling_size/2;
-      d_new[3] += random_source()*scaling_size - scaling_size/2;
-      d_new[2] = std::min(1.0f,std::max(0.01f,d_new[2]));
-      d_new[3] = std::min(1.0f,std::max(0.01f,d_new[3]));
+      // d_new[2] += random_source()*scaling_size - scaling_size/2;
+      // d_new[3] += random_source()*scaling_size - scaling_size/2;
+      // d_new[2] = std::min(1.0f,std::max(0.01f,d_new[2]));
+      // d_new[3] = std::min(1.0f,std::max(0.01f,d_new[3]));
       cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
       if ( cost_new < curr_cost ) {
         ab_disparity(i,j) = d_new;
       }
+    }
+    if ( j%10 == 0 ) {
+      write_frame( *LRGLOBAL, *RLGLOBAL );
     }
   }
 }
@@ -259,8 +288,8 @@ TEST( PatchMatch, Basic ) {
     for (size_t i = 0; i < lr_disparity.cols(); i++ ) {
       DispT result;
       subvector(result,0,2) = elem_prod(Vector2f(random_source(),random_source()),search_range_size) + search_range.min();
-      result[2] = random_source();
-      result[3] = random_source();
+      //result[2] = random_source();
+      //result[3] = random_source();
       lr_disparity(i,j) = result;
     }
   }
@@ -268,14 +297,15 @@ TEST( PatchMatch, Basic ) {
     for (size_t i = 0; i < rl_disparity.cols(); i++ ) {
       DispT result;
       subvector(result,0,2) = elem_prod(Vector2f(random_source(),random_source()),search_range_size) - search_range.max();
-      result[2] = random_source();
-      result[3] = random_source();
+      //result[2] = random_source();
+      //result[3] = random_source();
       rl_disparity(i,j) = result;
     }
   }
 
-  write_image("lr_0.tif",lr_disparity);
-  write_image("rl_0.tif",rl_disparity);
+  LRGLOBAL = &lr_disparity;
+  RLGLOBAL = &rl_disparity;
+  write_frame( lr_disparity, rl_disparity );
 
   ImageView<float> lr_costs( lr_disparity.cols(), lr_disparity.rows() ),
     rl_costs( rl_disparity.cols(), rl_disparity.rows() );
@@ -294,7 +324,7 @@ TEST( PatchMatch, Basic ) {
   ImageView<uint8> left_expanded( crop(edge_extend(left_image), left_expanded_roi ) ),
     right_expanded( crop(edge_extend(right_image), right_expanded_roi ) );
 
-  for ( int iteration = 0; iteration < 20; iteration++ ) {
+  for ( int iteration = 0; iteration < 6; iteration++ ) {
     if ( iteration > 0 ) {
       evaluate_new_search( left_expanded, right_expanded,
                            left_expanded_roi, right_expanded_roi,
@@ -325,14 +355,12 @@ TEST( PatchMatch, Basic ) {
                               rl_disparity, lr_disparity );
     }
 
-    std::string index_str = boost::lexical_cast<std::string>(iteration+1);
-    write_image("lr_"+index_str+".tif",lr_disparity);
-    write_image("rl_"+index_str+".tif",rl_disparity);
+    write_frame( lr_disparity, rl_disparity );
   }
 
   // Write out the final trusted disparity
-  ImageView<PixelMask<Vector2f> > final_disparity =
-    per_pixel_filter( lr_disparity, CastVec2fFunc() );
+  ImageView<PixelMask<Vector2f> > final_disparity = lr_disparity;
+  //    per_pixel_filter( lr_disparity, CastVec2fFunc() );
   stereo::cross_corr_consistency_check( final_disparity,
                                         rl_disparity, 1.0, true );
   write_image("final_disparity.tif", final_disparity );
