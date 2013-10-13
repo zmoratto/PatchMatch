@@ -29,3 +29,6 @@ check: $(EXECS)
 	parallel gdal_translate -b 3 -scale -ot Byte {} {.}.b-Nx.tif ::: lr_?.tif rl_?.tif lr_??.tif rl_??.tif
 	parallel gdal_translate -b 4 -scale -ot Byte {} {.}.b-Ny.tif ::: lr_?.tif rl_?.tif lr_??.tif rl_??.tif
 
+profile:
+	LD_PRELOAD=/usr/lib/libprofiler.so CPUPROFILE=`pwd`/patchmatch.prof ./TestPatchMatch
+	google-pprof --pdf $(PWD)/TestPatchMatch patchmatch.prof > patchmatch.pdf
