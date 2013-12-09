@@ -20,24 +20,6 @@ using namespace vw;
 
 typedef Vector2f DispT;
 
-ImageView<DispT>* LRGLOBAL, *RLGLOBAL;
-
-void write_frame( ImageView<DispT> const& lr, ImageView<DispT> const& rl ) {
-  static int count = 0;
-
-  char buffer[7];
-  sprintf(buffer,"%07d", count);
-  ImageView<uint8> composite( lr.cols()+rl.cols(), lr.rows() );
-  crop( composite, bounding_box( lr ) ) =
-    clamp(select_channel(lr,0)*(-4),0,255);
-  crop( composite, bounding_box( rl ) + Vector2i(lr.cols(),0) ) =
-    clamp(255-select_channel(rl,0)*4,0,255);
-
-  write_image("pmvideo" + std::string(buffer)+".png", composite );
-
-  count++;
-}
-
 // Possibly replace with something that keep resampling when out of bounds?
 inline Vector2f
 clip_to_search_range( Vector2f in, BBox2f const& search_range ) {
@@ -160,9 +142,6 @@ void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const&
       }
 
     }
-    if ( j%10 == 0 ) {
-      write_frame( *LRGLOBAL, *RLGLOBAL );
-    }
   }
 }
 
@@ -217,9 +196,6 @@ void evaluate_odd_iteration( ImageView<uint8> const& a, ImageView<uint8> const& 
       }
 
     }
-    if ( j%10 == 0 ) {
-      write_frame( *LRGLOBAL, *RLGLOBAL );
-    }
   }
 }
 
@@ -262,9 +238,6 @@ void evaluate_new_search( ImageView<uint8> const& a, ImageView<uint8> const& b,
         ab_disparity(i,j) = d_new;
       }
     }
-    if ( j%10 == 0 ) {
-      write_frame( *LRGLOBAL, *RLGLOBAL );
-    }
   }
 }
 
@@ -302,10 +275,6 @@ TEST( PatchMatch, Basic ) {
       rl_disparity(i,j) = result;
     }
   }
-
-  LRGLOBAL = &lr_disparity;
-  RLGLOBAL = &rl_disparity;
-  write_frame( lr_disparity, rl_disparity );
 
   ImageView<float> lr_costs( lr_disparity.cols(), lr_disparity.rows() ),
     rl_costs( rl_disparity.cols(), rl_disparity.rows() );
@@ -355,7 +324,6 @@ TEST( PatchMatch, Basic ) {
                               rl_disparity, lr_disparity );
     }
 
-    write_frame( lr_disparity, rl_disparity );
   }
 
   // Write out the final trusted disparity

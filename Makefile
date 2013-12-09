@@ -2,9 +2,9 @@ VWDIR=$(HOME)/projects/VisionWorkbench/build
 GTEST=$(PWD)/gtest-1.7.0
 BDIR=$(HOME)/packages/base_system
 
-CXXFLAGS += -g -O3 -I$(BDIR)/include -I$(BDIR)/include/boost-1_54 -I$(VWDIR)/include -I$(PWD) -ffast-math
+CXXFLAGS += -g -O3 -I$(BDIR)/include -I$(BDIR)/include/boost-1_55 -I$(VWDIR)/include -I$(PWD) -ffast-math
 
-LDFLAGS += -L$(BDIR)/lib -lboost_system-mt-1_54 -lboost_thread-mt-1_54 -lboost_filesystem-mt-1_54 -L$(VWDIR)/lib -lvwCore -lvwMath -lvwFileIO -lvwImage -L$(GTEST)/lib -lgtest
+LDFLAGS += -L$(BDIR)/lib -lboost_system-mt-1_55 -lboost_thread-mt-1_55 -lboost_filesystem-mt-1_55 -L$(VWDIR)/lib -lvwCore -lvwMath -lvwFileIO -lvwImage -L$(GTEST)/lib -lgtest
 
 %.o : %.cc
 	$(CXX) -c -o $@ $(CXXFLAGS) $^
