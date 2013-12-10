@@ -53,7 +53,7 @@ struct CastVec2fFunc : public vw::ReturnFixedType<PixelMask<Vector2f> > {
 };
 
 // Simple square kernels
-float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
+float calculate_cost_d( Vector2f const& a_loc, Vector2f const& disparity,
                       ImageView<uint8> const& a, ImageView<uint8> const& b,
                       BBox2i const& a_roi, BBox2i const& b_roi, Vector2i const& kernel_size ) {
   BBox2i kernel_roi( -kernel_size/2, kernel_size/2 + Vector2i(1,1) );
@@ -84,6 +84,42 @@ float calculate_cost( Vector2f const& a_loc, Vector4f const& disparity,
       crop( transform_no_edge(b, AffineTransform( scaling, -b_offset ) ),
             kernel_roi ), AbsDiffFunc<uint8>() ));
   return result;
+}
+
+// Floating point square cost functor that uses adaptive support weights
+float  calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
+                       ImageView<uint8> const& a, ImageView<uint8> const& b,
+                       BBox2i const& a_roi, BBox2i const& b_roi, Vector2i const& kernel_size ) {
+  BBox2i kernel_roi( -kernel_size/2, kernel_size/2 + Vector2i(1,1) );
+
+  ImageView<float> left_kernel
+    = crop(a, kernel_roi + a_loc - a_roi.min() );
+  ImageView<float> right_kernel
+    = crop( transform_no_edge(b,
+                              TranslateTransform(-(a_loc.x() + disparity[0] - float(b_roi.min().x())),
+                                                 -(a_loc.y() + disparity[1] - float(b_roi.min().y())))),
+            kernel_roi );
+
+  // Calculate support weights for left and right
+  ImageView<float>
+    weight(kernel_size.x(),kernel_size.y());
+
+  Vector2f center_index = kernel_size/2;
+  float left_color = left_kernel(center_index[0],center_index[1]),
+    right_color = right_kernel(center_index[0],center_index[1]);
+  float kernel_diag = norm_2(kernel_size);
+  float sum = 0;
+  for ( int j = 0; j < kernel_size.y(); j++ ) {
+    for ( int i = 0; i < kernel_size.x(); i++ ) {
+      float dist = norm_2( Vector2f(i,j) - center_index )/kernel_diag;
+      //float dist = 0;
+      float lcdist = fabs( left_kernel(i,j) - left_color );
+      float rcdist = fabs( right_kernel(i,j) - right_color );
+      sum += weight(i,j) = exp(-lcdist/14 - dist) * exp(-rcdist/14 - dist);
+    }
+  }
+
+  return sum_of_pixel_values( weight * per_pixel_filter(left_kernel,right_kernel,AbsDiffFunc<float>())) / sum;
 }
 
 // Propogates Left, Above, and against opposite disparity
@@ -247,7 +283,8 @@ TEST( PatchMatch, Basic ) {
   read_image(right_image,"../SemiGlobalMatching/data/cones/im6.png");
 
   // This are our disparity guess. The Vector2f represents a window offset
-  ImageView<DispT> lr_disparity(left_image.cols(),left_image.rows()), rl_disparity(right_image.cols(),right_image.rows());
+  ImageView<DispT> lr_disparity(left_image.cols(),left_image.rows()),
+    rl_disparity(right_image.cols(),right_image.rows());
   boost::rand48 gen(std::rand());
   typedef boost::variate_generator<boost::rand48, boost::random::uniform_01<> > vargen_type;
   BBox2f search_range(Vector2f(-128,-1),Vector2f(0,1)); // inclusive
@@ -255,14 +292,12 @@ TEST( PatchMatch, Basic ) {
   vargen_type random_source(gen, boost::random::uniform_01<>());
   Vector2f search_range_size = search_range.size();
   BBox2f search_range_rl( -search_range.max(), -search_range.min() );
-  Vector2i kernel_size(11,11);
+  Vector2i kernel_size(17,17);
 
   for (size_t j = 0; j < lr_disparity.rows(); j++ ) {
     for (size_t i = 0; i < lr_disparity.cols(); i++ ) {
       DispT result;
       subvector(result,0,2) = elem_prod(Vector2f(random_source(),random_source()),search_range_size) + search_range.min();
-      //result[2] = random_source();
-      //result[3] = random_source();
       lr_disparity(i,j) = result;
     }
   }
@@ -270,8 +305,6 @@ TEST( PatchMatch, Basic ) {
     for (size_t i = 0; i < rl_disparity.cols(); i++ ) {
       DispT result;
       subvector(result,0,2) = elem_prod(Vector2f(random_source(),random_source()),search_range_size) - search_range.max();
-      //result[2] = random_source();
-      //result[3] = random_source();
       rl_disparity(i,j) = result;
     }
   }
@@ -328,6 +361,9 @@ TEST( PatchMatch, Basic ) {
 
   // Write out the final trusted disparity
   ImageView<PixelMask<Vector2f> > final_disparity = lr_disparity;
+  write_image("lr_disparity.tif", ImageView<PixelMask<Vector2f> >(lr_disparity) );
+  write_image("rl_disparity.tif", ImageView<PixelMask<Vector2f> >(rl_disparity) );
+
   //    per_pixel_filter( lr_disparity, CastVec2fFunc() );
   stereo::cross_corr_consistency_check( final_disparity,
                                         rl_disparity, 1.0, true );
