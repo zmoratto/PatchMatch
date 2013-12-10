@@ -131,7 +131,8 @@ void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const&
                               BBox2i const& a_roi, BBox2i const& b_roi,
                               Vector2i const& kernel_size,
                               ImageView<DispT>& ab_disparity,
-                              ImageView<DispT>& ba_disparity ) {
+                              ImageView<DispT>& ba_disparity,
+                              ImageView<float>& ab_cost ) {
 
   BBox2i b_disp_size = bounding_box(ba_disparity);
 
@@ -142,16 +143,12 @@ void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const&
       DispT d_new = ab_disparity(i,j);
       Vector2f loc(i,j);
 
-      // TODO: This could be cached!
-      float curr_cost =
-        calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
-
       // Comparing left
       if ( i > 0 ) {
         d_new = ab_disparity(i-i,j);
         cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
-        if ( cost_new < curr_cost ) {
-          curr_cost = cost_new;
+        if ( cost_new < ab_cost(i,j) ) {
+          ab_cost(i,j) = cost_new;
           ab_disparity(i,j) = d_new;
         }
       }
@@ -159,8 +156,8 @@ void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const&
       if ( j > 0 ) {
         d_new = ab_disparity(i,j-1);
         cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
-        if ( cost_new < curr_cost ) {
-          curr_cost = cost_new;
+        if ( cost_new < ab_cost(i,j) ) {
+          ab_cost(i,j) = cost_new;
           ab_disparity(i,j) = d_new;
         }
       }
@@ -171,8 +168,8 @@ void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const&
         d_new = ba_disparity(i+d[0],j+d[1]);
         subvector(d_new,0,2) = -subvector(d_new,0,2);
         cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
-        if ( cost_new < curr_cost ) {
-          curr_cost = cost_new;
+        if ( cost_new < ab_cost(i,j) ) {
+          ab_cost(i,j) = cost_new;
           ab_disparity(i,j) = d_new;
         }
       }
@@ -186,7 +183,8 @@ void evaluate_odd_iteration( ImageView<uint8> const& a, ImageView<uint8> const& 
                              BBox2i const& a_roi, BBox2i const& b_roi,
                              Vector2i const& kernel_size,
                              ImageView<DispT>& ab_disparity,
-                             ImageView<DispT>& ba_disparity ) {
+                             ImageView<DispT>& ba_disparity,
+                             ImageView<float>& ab_cost ) {
   BBox2i b_disp_size = bounding_box(ba_disparity);
 
   // TODO: This could iterate by pixel accessor using ab_disparity
@@ -196,16 +194,12 @@ void evaluate_odd_iteration( ImageView<uint8> const& a, ImageView<uint8> const& 
       DispT d_new = ab_disparity(i,j);
       Vector2f loc(i,j);
 
-      // TODO: This could be cached!
-      float curr_cost =
-        calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
-
       // Comparing right
       if ( i < ab_disparity.cols()-1 ) {
         d_new = ab_disparity(i+1,j);
         cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
-        if ( cost_new < curr_cost ) {
-          curr_cost = cost_new;
+        if ( cost_new < ab_cost(i,j) ) {
+          ab_cost(i,j) = cost_new;
           ab_disparity(i,j) = d_new;
         }
       }
@@ -213,8 +207,8 @@ void evaluate_odd_iteration( ImageView<uint8> const& a, ImageView<uint8> const& 
       if ( j < ab_disparity.rows()-1 ) {
         d_new = ab_disparity(i,j+1);
         cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
-        if ( cost_new < curr_cost ) {
-          curr_cost = cost_new;
+        if ( cost_new < ab_cost(i,j) ) {
+          ab_cost(i,j) = cost_new;
           ab_disparity(i,j) = d_new;
         }
       }
@@ -225,12 +219,28 @@ void evaluate_odd_iteration( ImageView<uint8> const& a, ImageView<uint8> const& 
         d_new = ba_disparity(i+d[0],j+d[1]);
         subvector(d_new,0,2) = -subvector(d_new,0,2);
         cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
-        if ( cost_new < curr_cost ) {
-          curr_cost = cost_new;
+        if ( cost_new < ab_cost(i,j) ) {
+          ab_cost(i,j) = cost_new;
           ab_disparity(i,j) = d_new;
         }
       }
 
+    }
+  }
+}
+
+// Evaluates current disparity and writes its cost
+void evaluate_disparity( ImageView<uint8> const& a, ImageView<uint8> const& b,
+                         BBox2i const& a_roi, BBox2i const& b_roi,
+                         Vector2i const& kernel_size,
+                         ImageView<DispT>& ab_disparity,
+                         ImageView<float>& ab_cost ) {
+  for ( size_t j = 0; j < ab_disparity.rows(); j++ ) {
+    for ( size_t i = 0; i < ab_disparity.cols(); i++ ) {
+      ab_cost(i,j) =
+        calculate_cost( Vector2f(i,j),
+                        ab_disparity(i,j),
+                        a, b, a_roi, b_roi, kernel_size );
     }
   }
 }
@@ -240,7 +250,8 @@ void evaluate_new_search( ImageView<uint8> const& a, ImageView<uint8> const& b,
                           BBox2i const& a_roi, BBox2i const& b_roi,
                           BBox2f const& search_range, Vector2i const& kernel_size, int iteration,
                           boost::variate_generator<boost::rand48, boost::random::uniform_01<> >& random_source,
-                          ImageView<DispT>& ab_disparity ) {
+                          ImageView<DispT>& ab_disparity,
+                          ImageView<float>& ab_cost ) {
 
   Vector2f search_range_size = search_range.size();
   float scaling_size = 1.0/pow(2.0,iteration);
@@ -252,25 +263,18 @@ void evaluate_new_search( ImageView<uint8> const& a, ImageView<uint8> const& b,
   // TODO: This could iterate by pixel accessor using ab_disparity
   for ( size_t j = 0; j < ab_disparity.rows(); j++ ) {
     for ( size_t i = 0; i < ab_disparity.cols(); i++ ) {
-      float cost_new;
       DispT d_new = ab_disparity(i,j);
       Vector2f loc(i,j);
 
-      // TODO: This could be cached!
-      float curr_cost =
-        calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
-
       // Evaluate a new possible disparity from a local random guess
-      Vector2f translation =
-        clip_to_search_range( subvector(d_new,0,2) + elem_prod(Vector2f( random_source(), random_source()),search_range_size)
+      subvector(d_new,0,2) =
+        clip_to_search_range( subvector(d_new,0,2) +
+                              elem_prod(Vector2f( random_source(), random_source()),
+                                        search_range_size)
                               - search_range_size_half, search_range );
-      subvector(d_new,0,2) = translation;
-      // d_new[2] += random_source()*scaling_size - scaling_size/2;
-      // d_new[3] += random_source()*scaling_size - scaling_size/2;
-      // d_new[2] = std::min(1.0f,std::max(0.01f,d_new[2]));
-      // d_new[3] = std::min(1.0f,std::max(0.01f,d_new[3]));
-      cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
-      if ( cost_new < curr_cost ) {
+      float cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
+      if ( cost_new < ab_cost(i,j) ) {
+        ab_cost(i,j) = cost_new;
         ab_disparity(i,j) = d_new;
       }
     }
@@ -309,8 +313,8 @@ TEST( PatchMatch, Basic ) {
     }
   }
 
-  ImageView<float> lr_costs( lr_disparity.cols(), lr_disparity.rows() ),
-    rl_costs( rl_disparity.cols(), rl_disparity.rows() );
+  ImageView<float> lr_cost( lr_disparity.cols(), lr_disparity.rows() ),
+    rl_cost( rl_disparity.cols(), rl_disparity.rows() );
   BBox2i left_expanded_roi = bounding_box( left_image );
   BBox2i right_expanded_roi = bounding_box( right_image );
   left_expanded_roi.min() -= kernel_size/2;      // Expand by kernel size
@@ -326,35 +330,43 @@ TEST( PatchMatch, Basic ) {
   ImageView<uint8> left_expanded( crop(edge_extend(left_image), left_expanded_roi ) ),
     right_expanded( crop(edge_extend(right_image), right_expanded_roi ) );
 
+  // Evaluate the first cost
+  evaluate_disparity( left_expanded, right_expanded,
+                      left_expanded_roi, right_expanded_roi,
+                      kernel_size, lr_disparity, lr_cost );
+  evaluate_disparity( right_expanded, left_expanded,
+                      right_expanded_roi, left_expanded_roi,
+                      kernel_size, rl_disparity, rl_cost );
+
   for ( int iteration = 0; iteration < 6; iteration++ ) {
     if ( iteration > 0 ) {
       evaluate_new_search( left_expanded, right_expanded,
                            left_expanded_roi, right_expanded_roi,
                            search_range, kernel_size, iteration,
-                           random_source, lr_disparity );
+                           random_source, lr_disparity, lr_cost );
       evaluate_new_search( right_expanded, left_expanded,
                            right_expanded_roi, left_expanded_roi,
                            search_range_rl, kernel_size, iteration,
-                           random_source, rl_disparity );
+                           random_source, rl_disparity, rl_cost );
     }
     if ( iteration % 2 ) {
       evaluate_even_iteration( left_expanded, right_expanded,
                                left_expanded_roi, right_expanded_roi,
                                kernel_size,
-                               lr_disparity, rl_disparity );
+                               lr_disparity, rl_disparity, lr_cost );
       evaluate_even_iteration( right_expanded, left_expanded,
                                right_expanded_roi, left_expanded_roi,
                                kernel_size,
-                               rl_disparity, lr_disparity );
+                               rl_disparity, lr_disparity, rl_cost );
     } else {
       evaluate_odd_iteration( left_expanded, right_expanded,
                               left_expanded_roi, right_expanded_roi,
                               kernel_size,
-                              lr_disparity, rl_disparity );
+                              lr_disparity, rl_disparity, lr_cost );
       evaluate_odd_iteration( right_expanded, left_expanded,
                               right_expanded_roi, left_expanded_roi,
                               kernel_size,
-                              rl_disparity, lr_disparity );
+                              rl_disparity, lr_disparity, rl_cost );
     }
 
   }
