@@ -138,42 +138,45 @@ void evaluate_even_iteration( ImageView<uint8> const& a, ImageView<uint8> const&
 
   // TODO: This could iterate by pixel accessor using ab_disparity
   for ( size_t j = 0; j < ab_disparity.rows(); j++ ) {
-    for ( size_t i = 0; i < ab_disparity.cols(); i++ ) {
-      float cost_new;
-      DispT d_new = ab_disparity(i,j);
+    // Compare to the left
+    for ( size_t i = 1; i < ab_disparity.cols(); i++ ) {
       Vector2f loc(i,j);
 
-      // Comparing left
-      if ( i > 0 ) {
-        d_new = ab_disparity(i-i,j);
-        cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
-        if ( cost_new < ab_cost(i,j) ) {
-          ab_cost(i,j) = cost_new;
-          ab_disparity(i,j) = d_new;
-        }
+      DispT d_new = ab_disparity(i-i,j);
+      float cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
+      if ( cost_new < ab_cost(i,j) ) {
+        ab_cost(i,j) = cost_new;
+        ab_disparity(i,j) = d_new;
       }
-      // Comparing top
-      if ( j > 0 ) {
-        d_new = ab_disparity(i,j-1);
-        cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
-        if ( cost_new < ab_cost(i,j) ) {
-          ab_cost(i,j) = cost_new;
-          ab_disparity(i,j) = d_new;
-        }
-      }
+    }
 
-      // Comparing against RL
+    // Compare to the top
+    if ( j > 0 ) {
+      for ( size_t i = 0; i < ab_disparity.cols(); i++ ) {
+        Vector2f loc(i,j);
+        DispT d_new = ab_disparity(i,j-1);
+        float cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
+        if ( cost_new < ab_cost(i,j) ) {
+          ab_cost(i,j) = cost_new;
+          ab_disparity(i,j) = d_new;
+        }
+      }
+    }
+
+    // Comparing against RL
+    for ( size_t i = 0; i < ab_disparity.cols(); i++ ) {
+      Vector2f loc(i,j);
+
       Vector2f d = subvector(ab_disparity(i,j),0,2);
       if ( b_disp_size.contains( d + loc ) ) {
-        d_new = ba_disparity(i+d[0],j+d[1]);
+        DispT d_new = ba_disparity(i+d[0],j+d[1]);
         subvector(d_new,0,2) = -subvector(d_new,0,2);
-        cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
+        float cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi, kernel_size );
         if ( cost_new < ab_cost(i,j) ) {
           ab_cost(i,j) = cost_new;
           ab_disparity(i,j) = d_new;
         }
       }
-
     }
   }
 }
@@ -257,6 +260,8 @@ void evaluate_new_search( ImageView<uint8> const& a, ImageView<uint8> const& b,
   float scaling_size = 1.0/pow(2.0,iteration);
   search_range_size *= scaling_size;
   Vector2f search_range_size_half = search_range_size / 2.0;
+  search_range_size_half[0] = std::max(0.5f, search_range_size_half[0]);
+  search_range_size_half[1] = std::max(0.5f, search_range_size_half[1]);
 
   std::cout << search_range_size_half << std::endl;
 
