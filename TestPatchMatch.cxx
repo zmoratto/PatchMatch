@@ -292,7 +292,7 @@ TEST( PatchMatch, Basic ) {
   vargen_type random_source(gen, boost::random::uniform_01<>());
   Vector2f search_range_size = search_range.size();
   BBox2f search_range_rl( -search_range.max(), -search_range.min() );
-  Vector2i kernel_size(17,17);
+  Vector2i kernel_size(11,11);
 
   for (size_t j = 0; j < lr_disparity.rows(); j++ ) {
     for (size_t i = 0; i < lr_disparity.cols(); i++ ) {
