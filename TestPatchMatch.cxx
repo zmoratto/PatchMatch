@@ -9,6 +9,8 @@
 #include <boost/random/uniform_01.hpp>
 #include <boost/lexical_cast.hpp>
 
+#include <PatchMatch.h>
+
 namespace vw {
   template<> struct PixelFormatID<Vector2f> { static const PixelFormatEnum value = VW_PIXEL_GENERIC_2_CHANNEL; };
   template<> struct PixelFormatID<Vector4f> { static const PixelFormatEnum value = VW_PIXEL_GENERIC_4_CHANNEL; };
@@ -381,6 +383,18 @@ TEST( PatchMatch, Basic ) {
   stereo::cross_corr_consistency_check( final_disparity,
                                         rl_disparity, 1.0, true );
   write_image("final_disparity.tif", final_disparity );
+}
+
+TEST( PatchMatch, PatchMatchView ) {
+  DiskImageView<PixelGray<uint8> >
+    left_image("../SemiGlobalMatching/data/cones/im2.png"),
+    right_image("../SemiGlobalMatching/data/cones/im6.png");
+
+  ImageView<PixelMask<Vector2f> > disparity =
+    stereo::patch_match( left_image, right_image,
+                         BBox2i(Vector2i(-128,-1),Vector2i(0,1)),
+                         Vector2i(11,11) );
+  write_image("final_disparity_pmview.tif", disparity);
 }
 
 int main( int argc, char **argv ) {
