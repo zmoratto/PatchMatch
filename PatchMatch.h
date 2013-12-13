@@ -12,8 +12,9 @@ namespace vw {
       Image1T m_left_image;
       Image2T m_right_image;
       BBox2i m_search_region;
-      BBox2i m_search_region_rl;
       Vector2i m_kernel_size;
+      Vector2i m_search_size;
+      Vector2f m_search_size_f;
       float m_consistency_threshold;
 
       typedef typename Image1T::pixel_type Pixel1T;
@@ -21,20 +22,10 @@ namespace vw {
       typedef Vector2f DispT;
 
       template <class ImageT, class TransformT>
-      TransformView<InterpolationView<ImageT, BilinearInterpolation>, TransformT>
+      TransformView<vw::InterpolationView<ImageT, BilinearInterpolation>, TransformT>
       inline transform_no_edge( ImageViewBase<ImageT> const& v,
                                 TransformT const& transform_func ) const {
         return TransformView<InterpolationView<ImageT, BilinearInterpolation>, TransformT>( InterpolationView<ImageT, BilinearInterpolation>( v.impl() ), transform_func );
-      }
-
-      // Possibly replace with something that keep resampling when out of bounds?
-      inline Vector2f
-      clip_to_search_range( Vector2f in, BBox2f const& search_range ) const {
-        if ( in.x() < search_range.min().x() ) in.x() = search_range.min().x();
-        if ( in.x() > search_range.max().x() ) in.x() = search_range.max().x();
-        if ( in.y() < search_range.min().y() ) in.y() = search_range.min().y();
-        if ( in.y() > search_range.max().y() ) in.y() = search_range.max().y();
-        return in;
       }
 
       // To avoid casting higher for uint8 subtraction
@@ -207,6 +198,7 @@ namespace vw {
       }
 
       // Evaluates new random search
+      template <bool ForwardT>
       void evaluate_new_search( ImageView<Pixel1T> const& a,
                                 ImageView<Pixel2T> const& b,
                                 BBox2i const& a_roi, BBox2i const& b_roi,
@@ -215,14 +207,11 @@ namespace vw {
                                 ImageView<DispT>& ab_disparity,
                                 ImageView<float>& ab_cost ) const {
 
-        Vector2f search_range_size = m_search_region.size();
-        float scaling_size = 1.0/pow(2.0,iteration);
-        search_range_size *= scaling_size;
-        Vector2f search_range_size_half = search_range_size / 2.0;
-        search_range_size_half[0] = std::max(0.5f, search_range_size_half[0]);
-        search_range_size_half[1] = std::max(0.5f, search_range_size_half[1]);
+        Vector2f search_range_size = m_search_size_f / pow(2.0f,iteration);
+        search_range_size[0] = std::max(0.5f, search_range_size[0]);
+        search_range_size[1] = std::max(0.5f, search_range_size[1]);
 
-        std::cout << search_range_size_half << std::endl;
+        std::cout << search_range_size << std::endl;
 
         // TODO: This could iterate by pixel accessor using ab_disparity
         for ( int j = 0; j < ab_disparity.rows(); j++ ) {
@@ -230,12 +219,20 @@ namespace vw {
             DispT d_new = ab_disparity(i,j);
             Vector2f loc(i,j);
 
-            // Evaluate a new possible disparity from a local random guess
-            subvector(d_new,0,2) =
-              clip_to_search_range( subvector(d_new,0,2) +
-                                    elem_prod(Vector2f( random_source(), random_source()),
-                                              search_range_size)
-                                    - search_range_size_half, m_search_region );
+            // Add noise
+            subvector(d_new,0,2) +=
+              elem_prod(Vector2f( random_source()-0.5, random_source()-0.5),
+                        search_range_size );
+
+            // Clip Noise to Search Range so we don't exceed prerasters
+            if ( ForwardT ) {
+              d_new[0] = std::max(0.f,std::min(d_new[0],m_search_size_f[0]));
+              d_new[1] = std::max(0.f,std::min(d_new[1],m_search_size_f[1]));
+            } else {
+              d_new[0] = std::max(-m_search_size_f[0],std::min(0.f,d_new[0]));
+              d_new[1] = std::max(-m_search_size_f[1],std::min(0.f,d_new[1]));
+            }
+
             float cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi );
             if ( cost_new < ab_cost(i,j) ) {
               ab_cost(i,j) = cost_new;
@@ -250,6 +247,7 @@ namespace vw {
       typedef pixel_type result_type;
       typedef ProceduralPixelAccessor<PatchMatchView> pixel_accessor;
 
+      // Search region values are inclusive.
       PatchMatchView( ImageViewBase<Image1T> const& left,
                       ImageViewBase<Image2T> const& right,
                       BBox2i const& search_region, Vector2i const& kernel_size,
@@ -257,8 +255,8 @@ namespace vw {
         m_left_image(left.impl()), m_right_image(right.impl()),
         m_search_region(search_region), m_kernel_size(kernel_size),
         m_consistency_threshold(consistency_threshold) {
-        m_search_region_rl =
-          BBox2i( -m_search_region.max(), -m_search_region.min() );
+          m_search_size = m_search_region.size();
+          m_search_size_f = m_search_size;
       }
 
       // Standard required ImageView interfaces
@@ -276,10 +274,14 @@ namespace vw {
       typedef CropView<ImageView<pixel_type> > prerasterize_type;
       inline prerasterize_type prerasterize(BBox2i const& bbox) const {
 
+        std::cout << "-------------------------------\n";
+        std::cout << bbox << std::endl;
+
         // 0.) Define the left and right regions
         BBox2i left_region = bbox;
         BBox2i right_region = left_region + m_search_region.min();
-        right_region.max() += m_search_region.size();
+        right_region.max() += m_search_size;
+        right_region.max() += Vector2i(1,1); // Because search range is inclusive
 
         // 1.) Expand the left raster region by the kernel size.
         Vector2i half_kernel = m_kernel_size/2;
@@ -306,29 +308,30 @@ namespace vw {
         ImageView<float> lr_cost(lr_disparity.cols(), lr_disparity.rows()),
           rl_cost( rl_disparity.cols(), rl_disparity.rows() );
 
+        // DEBUG
+        write_image( "input-L.tif", left_expanded );
+        write_image( "input-R.tif", right_expanded );
+
         // 4.) Fill disparity with noise
         boost::rand48 gen(std::rand());
         typedef boost::variate_generator<boost::rand48, boost::random::uniform_01<> > vargen_type;
         vargen_type random_source(gen, boost::random::uniform_01<>());
-        Vector2i search_range_size = m_search_region.size();
         for (int j = 0; j < lr_disparity.rows(); j++ ) {
           for (int i = 0; i < lr_disparity.cols(); i++ ) {
-            DispT result;
-            subvector(result,0,2) =
-              elem_prod(Vector2f(random_source(),random_source()),
-                        search_range_size) + m_search_region.min();
-            lr_disparity(i,j) = result;
+            subvector(lr_disparity(i,j),0,2) =
+              elem_prod(Vector2f(random_source(),random_source()),m_search_size_f);
           }
         }
         for (int j = 0; j < rl_disparity.rows(); j++ ) {
           for (int i = 0; i < rl_disparity.cols(); i++ ) {
-            DispT result;
-            subvector(result,0,2) =
-              elem_prod(Vector2f(random_source(),random_source()),
-                        search_range_size) - m_search_region.max();
-            rl_disparity(i,j) = result;
+            subvector(rl_disparity(i,j),0,2) =
+              elem_prod(Vector2f(random_source(),random_source()),-m_search_size_f);
           }
         }
+        std::cout << "Search Range Size: " << m_search_size << std::endl;
+        std::cout << "Search Region: " << m_search_region << std::endl;
+        std::cout << "Left Expanded ROI: " << left_expanded_roi << std::endl;
+        std::cout << "Right Expanded ROI: " << right_expanded_roi << std::endl;
 
         // Left and Right expanded roi need to be transformed to read
         // relative to their objective roi.
@@ -347,12 +350,12 @@ namespace vw {
         // Iterate to converge on solution
         for ( int iteration = 0; iteration < 6; iteration++ ) {
           if ( iteration > 0 ) {
-            evaluate_new_search( left_expanded, right_expanded,
-                                 left_expanded_roi, right_expanded_roi,
-                                 iteration, random_source, lr_disparity, lr_cost );
-            evaluate_new_search( right_expanded, left_expanded,
-                                 right_expanded_roi, left_expanded_roi,
-                                 iteration, random_source, rl_disparity, rl_cost );
+            evaluate_new_search<true>( left_expanded, right_expanded,
+                                       left_expanded_roi, right_expanded_roi,
+                                       iteration, random_source, lr_disparity, lr_cost );
+            evaluate_new_search<false>( right_expanded, left_expanded,
+                                        right_expanded_roi, left_expanded_roi,
+                                        iteration, random_source, rl_disparity, rl_cost );
           }
           if ( iteration % 2 ) {
             evaluate_even_iteration( left_expanded, right_expanded,
@@ -370,6 +373,10 @@ namespace vw {
                                     rl_disparity, lr_disparity, rl_cost );
           }
         }
+
+        // DEBUG
+        write_image("lr_disp_view-D.tif", ImageView<pixel_type>(lr_disparity));
+        write_image("rl_disp_view-D.tif", ImageView<pixel_type>(rl_disparity));
 
         ImageView<pixel_type> result = lr_disparity;
         stereo::cross_corr_consistency_check( result,

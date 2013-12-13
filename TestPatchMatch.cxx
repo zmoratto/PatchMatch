@@ -376,13 +376,22 @@ TEST( PatchMatch, Basic ) {
 
   // Write out the final trusted disparity
   ImageView<PixelMask<Vector2f> > final_disparity = lr_disparity;
-  write_image("lr_disparity.tif", ImageView<PixelMask<Vector2f> >(lr_disparity) );
-  write_image("rl_disparity.tif", ImageView<PixelMask<Vector2f> >(rl_disparity) );
+  write_image("lr_disparity-D.tif", ImageView<PixelMask<Vector2f> >(lr_disparity) );
+  write_image("rl_disparity-D.tif", ImageView<PixelMask<Vector2f> >(rl_disparity) );
 
   //    per_pixel_filter( lr_disparity, CastVec2fFunc() );
   stereo::cross_corr_consistency_check( final_disparity,
                                         rl_disparity, 1.0, true );
-  write_image("final_disparity.tif", final_disparity );
+  write_image("final_disparity-D.tif", final_disparity );
+}
+
+template <class ImageT>
+void block_write_image( const std::string &filename,
+                        vw::ImageViewBase<ImageT> const& image,
+                        vw::ProgressCallback const& progress_callback = vw::ProgressCallback::dummy_instance() ) {
+  boost::scoped_ptr<vw::DiskImageResourceGDAL> rsrc
+    (new vw::DiskImageResourceGDAL(filename, image.impl().format()));
+  vw::block_write_image( *rsrc, image.impl(), progress_callback );
 }
 
 TEST( PatchMatch, PatchMatchView ) {
@@ -390,11 +399,12 @@ TEST( PatchMatch, PatchMatchView ) {
     left_image("../SemiGlobalMatching/data/cones/im2.png"),
     right_image("../SemiGlobalMatching/data/cones/im6.png");
 
-  ImageView<PixelMask<Vector2f> > disparity =
-    stereo::patch_match( left_image, right_image,
-                         BBox2i(Vector2i(-128,-1),Vector2i(0,1)),
-                         Vector2i(11,11) );
-  write_image("final_disparity_pmview.tif", disparity);
+
+  block_write_image( "final_disparity_pmview-D.tif",
+                     stereo::patch_match( left_image, right_image,
+                                          BBox2i(Vector2i(-128,-1),Vector2i(0,1)),
+                                          Vector2i(11,11) ) );
+  //                     TerminalProgressCallback("test","PatchMatch:") );
 }
 
 int main( int argc, char **argv ) {
