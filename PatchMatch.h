@@ -211,8 +211,6 @@ namespace vw {
         search_range_size[0] = std::max(0.5f, search_range_size[0]);
         search_range_size[1] = std::max(0.5f, search_range_size[1]);
 
-        std::cout << search_range_size << std::endl;
-
         // TODO: This could iterate by pixel accessor using ab_disparity
         for ( int j = 0; j < ab_disparity.rows(); j++ ) {
           for ( int i = 0; i < ab_disparity.cols(); i++ ) {
@@ -274,23 +272,23 @@ namespace vw {
       typedef CropView<ImageView<pixel_type> > prerasterize_type;
       inline prerasterize_type prerasterize(BBox2i const& bbox) const {
 
-        std::cout << "-------------------------------\n";
-        std::cout << bbox << std::endl;
-
         // 0.) Define the left and right regions
         BBox2i left_region = bbox;
         BBox2i right_region = left_region + m_search_region.min();
         right_region.max() += m_search_size;
-        right_region.max() += Vector2i(1,1); // Because search range is inclusive
 
-        // 1.) Expand the left raster region by the kernel size.
+        // 1.) Expand the left raster region by the search region that
+        // the expanded right region can touch
+        BBox2i left_expanded_roi = right_region - m_search_region.max();
+        left_expanded_roi.max() += m_search_size;
+
+        // 1.a) Expand the left raster by kernel size
         Vector2i half_kernel = m_kernel_size/2;
-        BBox2i left_expanded_roi = left_region;
         left_expanded_roi.min() -= half_kernel;
         left_expanded_roi.max() += half_kernel;
         left_expanded_roi.expand( BilinearInterpolation::pixel_buffer );
 
-        // 2.) Calculate the region of the right image that we're using.
+        // 2.) Expand the right raster by kernel
         BBox2i right_expanded_roi = right_region;
         right_expanded_roi.min() -= half_kernel;
         right_expanded_roi.max() += half_kernel;
@@ -308,10 +306,6 @@ namespace vw {
         ImageView<float> lr_cost(lr_disparity.cols(), lr_disparity.rows()),
           rl_cost( rl_disparity.cols(), rl_disparity.rows() );
 
-        // DEBUG
-        write_image( "input-L.tif", left_expanded );
-        write_image( "input-R.tif", right_expanded );
-
         // 4.) Fill disparity with noise
         boost::rand48 gen(std::rand());
         typedef boost::variate_generator<boost::rand48, boost::random::uniform_01<> > vargen_type;
@@ -328,10 +322,6 @@ namespace vw {
               elem_prod(Vector2f(random_source(),random_source()),-m_search_size_f);
           }
         }
-        std::cout << "Search Range Size: " << m_search_size << std::endl;
-        std::cout << "Search Region: " << m_search_region << std::endl;
-        std::cout << "Left Expanded ROI: " << left_expanded_roi << std::endl;
-        std::cout << "Right Expanded ROI: " << right_expanded_roi << std::endl;
 
         // Left and Right expanded roi need to be transformed to read
         // relative to their objective roi.
@@ -373,10 +363,6 @@ namespace vw {
                                     rl_disparity, lr_disparity, rl_cost );
           }
         }
-
-        // DEBUG
-        write_image("lr_disp_view-D.tif", ImageView<pixel_type>(lr_disparity));
-        write_image("rl_disp_view-D.tif", ImageView<pixel_type>(rl_disparity));
 
         ImageView<pixel_type> result = lr_disparity;
         stereo::cross_corr_consistency_check( result,
