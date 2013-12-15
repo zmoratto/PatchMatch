@@ -276,6 +276,14 @@ namespace vw {
         BBox2i left_region = bbox;
         BBox2i right_region = left_region + m_search_region.min();
         right_region.max() += m_search_size;
+        // This crop happens because we have no need to calculate
+        // disparities for extrapolated regions of the right
+        // image. However the right_expanded_roi can't be cropped as
+        // it must handle queries for cost that might happen from left
+        // since I don't want to put conditionals in the main loop.
+        std::cout << right_region << std::endl;
+        right_region.crop( bounding_box(m_right_image) );
+        std::cout << right_region << std::endl;
 
         // 1.) Expand the left raster region by the search region that
         // the expanded right region can touch
@@ -289,7 +297,8 @@ namespace vw {
         left_expanded_roi.expand( BilinearInterpolation::pixel_buffer );
 
         // 2.) Expand the right raster by kernel
-        BBox2i right_expanded_roi = right_region;
+        BBox2i right_expanded_roi = left_region + m_search_region.min();
+        right_expanded_roi.max() += m_search_size;
         right_expanded_roi.min() -= half_kernel;
         right_expanded_roi.max() += half_kernel;
         right_expanded_roi.expand( BilinearInterpolation::pixel_buffer );
@@ -363,6 +372,11 @@ namespace vw {
                                     rl_disparity, lr_disparity, rl_cost );
           }
         }
+
+        std::ostringstream ostr;
+        ostr << bbox.min()[0] << "_" << bbox.min()[1];
+        write_image("lr-"+ostr.str()+"-D.tif", ImageView<pixel_type>(lr_disparity) );
+        write_image("rl-"+ostr.str()+"-D.tif", ImageView<pixel_type>(rl_disparity) );
 
         ImageView<pixel_type> result = lr_disparity;
         stereo::cross_corr_consistency_check( result,
