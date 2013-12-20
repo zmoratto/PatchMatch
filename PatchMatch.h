@@ -17,9 +17,11 @@ namespace vw {
       Vector2f m_search_size_f;
       float m_consistency_threshold;
 
+      // Types to help me when program
       typedef typename Image1T::pixel_type Pixel1T;
       typedef typename Image2T::pixel_type Pixel2T;
       typedef Vector2f DispT;
+      typedef boost::rand48 GenT;
 
       template <class ImageT, class TransformT>
       TransformView<vw::InterpolationView<ImageT, BilinearInterpolation>, TransformT>
@@ -72,171 +74,109 @@ namespace vw {
         return sum_of_pixel_values( weight * per_pixel_filter(left_kernel,right_kernel,AbsDiffFunc<float>())) / sum;
       }
 
-      // Propogates Left, Above, and against opposite disparity
-      //
-      // Remember a and ab_disparity don't have the same dimensions. A has
-      // been expanded so we don't have to do an edge extension. The same
-      // applies to b and ba_disparity.
-      void evaluate_even_iteration( ImageView<Pixel1T> const& a,
-                                    ImageView<Pixel2T> const& b,
-                                    BBox2i const& a_roi, BBox2i const& b_roi,
-                                    ImageView<DispT>& ab_disparity,
-                                    ImageView<DispT>& ba_disparity,
-                                    ImageView<float>& ab_cost ) const {
-
-        BBox2i b_disp_size = bounding_box(ba_disparity);
-
-        // TODO: This could iterate by pixel accessor using ab_disparity
-        for ( int j = 0; j < ab_disparity.rows(); j++ ) {
-          // Compare to the left
-          for ( int i = 1; i < ab_disparity.cols(); i++ ) {
-            Vector2f loc(i,j);
-
-            DispT d_new = ab_disparity(i-i,j);
-            float cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi );
-            if ( cost_new < ab_cost(i,j) ) {
-              ab_cost(i,j) = cost_new;
-              ab_disparity(i,j) = d_new;
-            }
-          }
-
-          // Compare to the top
-          if ( j > 0 ) {
-            for ( int i = 0; i < ab_disparity.cols(); i++ ) {
-              Vector2f loc(i,j);
-              DispT d_new = ab_disparity(i,j-1);
-              float cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi );
-              if ( cost_new < ab_cost(i,j) ) {
-                ab_cost(i,j) = cost_new;
-                ab_disparity(i,j) = d_new;
-              }
-            }
-          }
-
-          // Comparing against RL
-          for ( int i = 0; i < ab_disparity.cols(); i++ ) {
-            Vector2f loc(i,j);
-
-            Vector2f d = subvector(ab_disparity(i,j),0,2);
-            if ( b_disp_size.contains( d + loc ) ) {
-              DispT d_new = ba_disparity(i+d[0],j+d[1]);
-              subvector(d_new,0,2) = -subvector(d_new,0,2);
-              float cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi );
-              if ( cost_new < ab_cost(i,j) ) {
-                ab_cost(i,j) = cost_new;
-                ab_disparity(i,j) = d_new;
-              }
-            }
-          }
-        }
-      }
-
-      // Propogates Right, Below, and against opposite disparity
-      void evaluate_odd_iteration( ImageView<Pixel1T> const& a,
-                                   ImageView<Pixel2T> const& b,
-                                   BBox2i const& a_roi, BBox2i const& b_roi,
-                                   ImageView<DispT>& ab_disparity,
-                                   ImageView<DispT>& ba_disparity,
-                                   ImageView<float>& ab_cost ) const {
-        BBox2i b_disp_size = bounding_box(ba_disparity);
-
-        // TODO: This could iterate by pixel accessor using ab_disparity
-        for ( int j = ab_disparity.rows()-1; j >= 0; j-- ) {
-          // Comparing right
-          for ( int i = ab_disparity.cols()-2; i >= 0; i-- ) {
-            DispT d_new = ab_disparity(i+1,j);
-            float cost_new = calculate_cost( Vector2f(i,j), d_new, a, b, a_roi, b_roi );
-            if ( cost_new < ab_cost(i,j) ) {
-              ab_cost(i,j) = cost_new;
-              ab_disparity(i,j) = d_new;
-            }
-          }
-
-          // Comparing bottom
-          if ( j < ab_disparity.rows()-1 ) {
-            for ( int i = ab_disparity.cols()-1; i >= 0; i-- ) {
-              DispT d_new = ab_disparity(i,j+1);
-              float cost_new = calculate_cost( Vector2f(i,j), d_new, a, b, a_roi, b_roi );
-              if ( cost_new < ab_cost(i,j) ) {
-                ab_cost(i,j) = cost_new;
-                ab_disparity(i,j) = d_new;
-              }
-            }
-          }
-
-          for ( int i = ab_disparity.cols()-1; i >= 0; i-- ) {
-            // Comparing against RL
-            Vector2f d = subvector(ab_disparity(i,j),0,2);
-            if ( b_disp_size.contains( d + Vector2f(i,j) ) ) {
-              DispT d_new = ba_disparity(i+d[0],j+d[1]);
-              subvector(d_new,0,2) = -subvector(d_new,0,2);
-              float cost_new = calculate_cost( Vector2f(i,j), d_new, a, b, a_roi, b_roi );
-              if ( cost_new < ab_cost(i,j) ) {
-                ab_cost(i,j) = cost_new;
-                ab_disparity(i,j) = d_new;
-              }
-            }
-
-          }
-        }
-      }
-
-      // Evaluates current disparity and writes its cost
+      // Takes a disparity and writes to cost
+      template <int D_OFFSET_X,  int D_OFFSET_Y>
       void evaluate_disparity( ImageView<Pixel1T> const& a,
                                ImageView<Pixel2T> const& b,
-                               BBox2i const& a_roi, BBox2i const& b_roi,
-                               ImageView<DispT>& ab_disparity,
-                               ImageView<float>& ab_cost ) const {
-        for ( int j = 0; j < ab_disparity.rows(); j++ ) {
-          for ( int i = 0; i < ab_disparity.cols(); i++ ) {
-            ab_cost(i,j) =
-              calculate_cost( Vector2f(i,j),
-                              ab_disparity(i,j),
-                              a, b, a_roi, b_roi );
+                               Vector2i const& a_offset,  // b_offset assumed zero
+                               ImageView<DispT>& ab_disp, // Gets modified on non-zero D_OFFSET
+                               ImageView<float>& ab_cost  // Always modified
+                               ) {
+        BBox2i kernel_roi( -kernel_size/2, kernel_size/2 + Vector2i(1,1) );
+
+        // My hope is that these conditionals collapse during
+        // compiling because they are switching based on template
+        // parameters.
+        const int DIR_X = D_OFFSET_X < 1 ? 1 : -1;
+        const int DIR_Y = D_OFFSET_Y < 1 ? 1 : -1;
+        const int START_X = D_OFFSET_X < 1 ? 0 - D_OFFSET_X : ab_disp.cols() - D_OFFSET_X;
+        const int START_Y = D_OFFSET_Y < 1 ? 0 - D_OFFSET_Y : ab_disp.rows() - D_OFFSET_Y;
+        const int LOWER_X = D_OFFSET_X < 0 ? 1 : 0;
+        const int LOWER_Y = D_OFFSET_Y < 0 ? 1 : 0;
+        const int UPPER_X = D_OFFSET_X < 1 ? ab_disp.cols() : ab_disp.cols() - 1;
+        const int UPPER_Y = D_OFFSET_Y < 1 ? ab_disp.rows() : ab_disp.rows() - 1;
+        for ( int j = START_Y; j >= LOWER_Y && j < UPPER_Y; j += DIR_Y ) {
+          for ( int i = START_X; i >= LOWER_X && i < UPPER_Y; i += DIR_X ) {
+            Vector2f a_index =
+              Vector2f(i,j) + a_offset;
+            Vector2f b_index =
+              Vector2f(i,j) + ab_disp(i+D_OFFSET_X,j+D_OFFSET_Y);
+
+            // This is the basic
+            float result =
+              sum_of_pixel_values
+              (per_pixel_filter
+               (crop( a, kernel_roi + a_index ),
+                crop( transform_no_edge(b, TranslateTransform(-b_index[0], -b_index[1])),
+                      kernel_roi ), AbsDiffFunc<uint8>() ));
+            if ( D_OFFSET_X == 0 && D_OFFSET_Y == 0 ) {
+              ab_cost(i,j) = result;
+            } else {
+              if ( result < ab_cost(i,j) ) {
+                ab_cost(i,j) = result;
+                ab_disp(i,j) = ab_disp(i+D_OFFSET_X,j+D_OFFSET_Y);
+              }
+            }
           }
         }
       }
 
-      // Evaluates new random search
-      template <bool ForwardT>
-      void evaluate_new_search( ImageView<Pixel1T> const& a,
-                                ImageView<Pixel2T> const& b,
-                                BBox2i const& a_roi, BBox2i const& b_roi,
-                                int iteration,
-                                boost::variate_generator<boost::rand48, boost::random::uniform_01<> >& random_source,
-                                ImageView<DispT>& ab_disparity,
-                                ImageView<float>& ab_cost ) const {
+      void add_uniform_noise( Vector2f const& lo,
+                              Vector2f const& hi,
+                              ImageView<DispT>& disp,
+                              GenT& gen ) {
+        typedef boost::random::uniform_real_distribution<float> DistributionT;
+        typedef boost::variate_generator<GenT, DistributionT > vargen_type;
+        vargen_type source_x(gen, DistributionT(lo[0],hi[0])),
+          source_y(gen, DistributionT(lo[1],hi[1]));
 
-        Vector2f search_range_size = m_search_size_f / pow(2.0f,iteration);
-        search_range_size[0] = std::max(0.5f, search_range_size[0]);
-        search_range_size[1] = std::max(0.5f, search_range_size[1]);
-
-        // TODO: This could iterate by pixel accessor using ab_disparity
-        for ( int j = 0; j < ab_disparity.rows(); j++ ) {
-          for ( int i = 0; i < ab_disparity.cols(); i++ ) {
-            DispT d_new = ab_disparity(i,j);
-            Vector2f loc(i,j);
-
-            // Add noise
-            subvector(d_new,0,2) +=
-              elem_prod(Vector2f( random_source()-0.5, random_source()-0.5),
-                        search_range_size );
-
-            // Clip Noise to Search Range so we don't exceed prerasters
-            if ( ForwardT ) {
-              d_new[0] = std::max(0.f,std::min(d_new[0],m_search_size_f[0]));
-              d_new[1] = std::max(0.f,std::min(d_new[1],m_search_size_f[1]));
-            } else {
-              d_new[0] = std::max(-m_search_size_f[0],std::min(0.f,d_new[0]));
-              d_new[1] = std::max(-m_search_size_f[1],std::min(0.f,d_new[1]));
-            }
-
-            float cost_new = calculate_cost( loc, d_new, a, b, a_roi, b_roi );
-            if ( cost_new < ab_cost(i,j) ) {
-              ab_cost(i,j) = cost_new;
-              ab_disparity(i,j) = d_new;
-            }
+        typedef ImageView<DispT> ImageT;
+        typename ImageT::pixel_accessor row = disp.origin();
+        for ( int j = disp.rows(); j; --j ) {
+          typename ImageT::pixel_accessor col = row;
+          for ( int i = disp.cols(); i; --i ) {
+            (*col)[0] += source_x();
+            (*col)[1] += source_y();
+            (*col)[0] = std::max(0,std::min(m_search_size_f[0],(*col)[0]));
+            (*col)[1] = std::max(0,std::min(m_search_size_f[1],(*col)[1]));
+            col.next_col();
           }
+          row.next_row();
+        }
+      }
+
+      // There can probably be an optimized version of this wrriten
+      // for SSE4 using BLEND insutrctions.
+      void keep_best_disparity( ImageView<DispT>& dest_disp,
+                                ImageView<float>& dest_cost,
+                                ImageView<DispT> const& src_disp,
+                                ImageView<float> const& src_cost ) {
+        typedef ImageView<DispT> DispT;
+        typedef ImageView<float> CostT;
+
+        typename DispT::pixel_accessor dest_disp_row = dest_disp.origin();
+        typename DispT::pixel_accessor src_disp_row = src_disp.origin();
+        typename CostT::pixel_accessor dest_cost_row = dest_cost.origin();
+        typename CostT::pixel_accessor src_cost_row = src_cost.origin();
+        for ( int j = dest_disp.rows(); j; --j ) {
+          typename DispT::pixel_accessor dest_disp_col = dest_disp_row;
+          typename DispT::pixel_accessor src_disp_col = src_disp_row;
+          typename CostT::pixel_accessor dest_cost_col = dest_cost_row;
+          typename CostT::pixel_accessor src_cost_col = src_cost_row;
+          for ( int i = dest_disp.cols(); i; --i ) {
+            if ( *dest_cost > *src_cost ) {
+              *dest_disp = *src_disp;
+            }
+
+            dest_disp_col.next_col();
+            src_disp_col.next_col();
+            dest_cost_col.next_col();
+            src_cost_col.next_col();
+          }
+          dest_disp_row.next_row();
+          src_disp_row.next_row();
+          dest_cost_row.next_row();
+          src_cost_row.next_row();
         }
       }
 
@@ -253,8 +193,8 @@ namespace vw {
         m_left_image(left.impl()), m_right_image(right.impl()),
         m_search_region(search_region), m_kernel_size(kernel_size),
         m_consistency_threshold(consistency_threshold) {
-          m_search_size = m_search_region.size();
-          m_search_size_f = m_search_size;
+        m_search_size = m_search_region.size();
+        m_search_size_f = m_search_size;
       }
 
       // Standard required ImageView interfaces
@@ -271,118 +211,94 @@ namespace vw {
       // Block rasterization section that does actual work
       typedef CropView<ImageView<pixel_type> > prerasterize_type;
       inline prerasterize_type prerasterize(BBox2i const& bbox) const {
+        // 1. Define Left ROI.
+        BBox2i l_roi = bbox;
 
-        // 0.) Define the left and right regions
-        BBox2i left_region = bbox;
-        BBox2i right_region = left_region + m_search_region.min();
-        right_region.max() += m_search_size;
-        // This crop happens because we have no need to calculate
-        // disparities for extrapolated regions of the right
-        // image. However the right_expanded_roi can't be cropped as
-        // it must handle queries for cost that might happen from left
-        // since I don't want to put conditionals in the main loop.
-        std::cout << right_region << std::endl;
-        right_region.crop( bounding_box(m_right_image) );
-        std::cout << right_region << std::endl;
+        // 2. Define Right ROI.
+        BBox2i r_roi = l_roiOB;
+        r_roi.min() += m_search_region.min();
+        r_roi.max() += m_search_region.max();
+        // Crop by the image bounds as we don't want to be calculating
+        // disparities for interpolated regions.
+        r_roi.crop( bounding_box( m_right_image ) );
 
-        // 1.) Expand the left raster region by the search region that
-        // the expanded right region can touch
-        BBox2i left_expanded_roi = right_region - m_search_region.max();
-        left_expanded_roi.max() += m_search_size;
+        // 3. Define Left Expanded ROI. This is where all the possible
+        // places we might make a pixel access to in the left.
+        BBox2i l_exp_roi = r_roi;
+        l_exp_roi.min() -= m_search_region.max();
+        l_exp_roi.max() -= m_search_region.min();
 
-        // 1.a) Expand the left raster by kernel size
-        Vector2i half_kernel = m_kernel_size/2;
-        left_expanded_roi.min() -= half_kernel;
-        left_expanded_roi.max() += half_kernel;
-        left_expanded_roi.expand( BilinearInterpolation::pixel_buffer );
+        // 4. Define Right Expanded ROI.
+        BBox2i r_exp_roi = l_roi;
+        r_exp_roi.min() += m_search_region.min();
+        r_exp_roi.max() += m_search_region.max();
 
-        // 2.) Expand the right raster by kernel
-        BBox2i right_expanded_roi = left_region + m_search_region.min();
-        right_expanded_roi.max() += m_search_size;
-        right_expanded_roi.min() -= half_kernel;
-        right_expanded_roi.max() += half_kernel;
-        right_expanded_roi.expand( BilinearInterpolation::pixel_buffer );
+        // 5. Expand the Expanded ROI by the kernel size and the space
+        // need for interpolation.
+        Vector2i half_kernel_size = m_kernel_size / 2;
+        l_exp_roi.min() -= half_kernel_size;
+        l_exp_roi.max() += half_kernel_size;
+        r_exp_roi.min() -= half_kernel_size;
+        r_exp_roi.max() += half_kernel_size;
+        l_exp_roi.expand( BilinearInterpolation::pixel_buffer );
+        r_exp_roi.expand( BilinearInterpolation::pixel_buffer );
 
-        // 3.) Rasterize copies of the input imagery that we
-        // need. Allocate space for disparity and cost images.
-        ImageView<Pixel1T> left_expanded =
-          crop(edge_extend(m_left_image), left_expanded_roi),
-          right_expanded =
-          crop(edge_extend(m_right_image), right_expanded_roi);
+        // 6. Allocate buffers
+        ImageView<Pixel1T> l_exp( crop( edge_extend(m_left_image), l_exp_roi ) );
+        ImageView<Pixel2T> r_exp( crop( edge_extend(m_right_image), r_exp_roi ) );
         ImageView<DispT>
-          lr_disparity( left_region.width(), left_region.height() ),
-          rl_disparity( right_region.width(), right_region.height() );
-        ImageView<float> lr_cost(lr_disparity.cols(), lr_disparity.rows()),
-          rl_cost( rl_disparity.cols(), rl_disparity.rows() );
+          l_disp( l_roi.width(), l_roi.height() ), l_disp_f( l_roi.width(), l_roi.height() ),
+          r_disp( r_roi.width(), r_roi.height() ), r_disp_f( r_roi.width(), r_roi.height() );
+        ImageView<float>
+          l_cost( l_roi.width(), l_roi.height() ), l_cost_f( l_roi.width(), l_roi.height() )
+          r_cost( r_roi.width(), r_roi.height() ), r_cost_f( r_roi.width(), r_roi.height() );
+        fill( l_disp, DispT() ); // TODO Is this needed?
+        fill( r_disp, DispT() );
 
-        // 4.) Fill disparity with noise
+        // 7. Write uniform noise
         boost::rand48 gen(std::rand());
-        typedef boost::variate_generator<boost::rand48, boost::random::uniform_01<> > vargen_type;
-        vargen_type random_source(gen, boost::random::uniform_01<>());
-        for (int j = 0; j < lr_disparity.rows(); j++ ) {
-          for (int i = 0; i < lr_disparity.cols(); i++ ) {
-            subvector(lr_disparity(i,j),0,2) =
-              elem_prod(Vector2f(random_source(),random_source()),m_search_size_f);
-          }
-        }
-        for (int j = 0; j < rl_disparity.rows(); j++ ) {
-          for (int i = 0; i < rl_disparity.cols(); i++ ) {
-            subvector(rl_disparity(i,j),0,2) =
-              elem_prod(Vector2f(random_source(),random_source()),-m_search_size_f);
-          }
-        }
+        vargen_type random_source(gen, boost::random::uniform_01<float>());
+        add_uniform_noise( Vector2f(0,0), m_search_size_f,
+                           l_disp, gen );
+        add_uniform_noise( Vector2f(0,0), m_search_size_f,
+                           r_disp, gen );
 
-        // Left and Right expanded roi need to be transformed to read
-        // relative to their objective roi.
-        left_expanded_roi -= left_region.min();
-        right_expanded_roi -= right_region.min();
+        // 8. Evaluate the current disparities
+        evaluate_disparity<0,0>();
+        evaluate_disparity<0,0>();
 
-        // Evaluate the current disparity guess so that current costs
-        // are evaluated
-        evaluate_disparity( left_expanded, right_expanded,
-                            left_expanded_roi, right_expanded_roi,
-                            lr_disparity, lr_cost );
-        evaluate_disparity( right_expanded, left_expanded,
-                            right_expanded_roi, left_expanded_roi,
-                            rl_disparity, rl_cost );
+        // 9. Implement iterative search.
+        for ( int iterations = 0; i < 6; i++ ) {
+          if ( iteration && 1 ) {
+            // 9.1 Compare to Left
+            evaluate_disparity<-1,0>();
+            evaluate_disparity<-1,0>();
 
-        // Iterate to converge on solution
-        for ( int iteration = 0; iteration < 6; iteration++ ) {
-          if ( iteration > 0 ) {
-            evaluate_new_search<true>( left_expanded, right_expanded,
-                                       left_expanded_roi, right_expanded_roi,
-                                       iteration, random_source, lr_disparity, lr_cost );
-            evaluate_new_search<false>( right_expanded, left_expanded,
-                                        right_expanded_roi, left_expanded_roi,
-                                        iteration, random_source, rl_disparity, rl_cost );
-          }
-          if ( iteration % 2 ) {
-            evaluate_even_iteration( left_expanded, right_expanded,
-                                     left_expanded_roi, right_expanded_roi,
-                                     lr_disparity, rl_disparity, lr_cost );
-            evaluate_even_iteration( right_expanded, left_expanded,
-                                     right_expanded_roi, left_expanded_roi,
-                                     rl_disparity, lr_disparity, rl_cost );
+            // 9.2 Compare to Above
+            evaluate_disparity<0,-1>();
           } else {
-            evaluate_odd_iteration( left_expanded, right_expanded,
-                                    left_expanded_roi, right_expanded_roi,
-                                    lr_disparity, rl_disparity, lr_cost );
-            evaluate_odd_iteration( right_expanded, left_expanded,
-                                    right_expanded_roi, left_expanded_roi,
-                                    rl_disparity, lr_disparity, rl_cost );
+            // 9.3 Compare to Right
+            evaluate_disparity<1,0>();
+
+            // 9.4 Compare to Bottom
+            evaluate_disparity<0,1>();
           }
+
+          // 9.5 Compare across LR
+
+          // 9.6 Compare across RL
+
+          // 9.7 Add noise and evaluate disparity
+          Vector2f half_search =
+            m_search_size_f * 0.25f / pow(2.0f,iterations);
+          add_uniform_noise( -half_search, half_search,
+                             l_disp, gen );
+          add_uniform_noise( -half_search, half_search,
+                             r_disp, gen );
+          evaluate_disparity<0,0>();
+          evaluate_disparity<0,0>();
+          
         }
-
-        std::ostringstream ostr;
-        ostr << bbox.min()[0] << "_" << bbox.min()[1];
-        write_image("lr-"+ostr.str()+"-D.tif", ImageView<pixel_type>(lr_disparity) );
-        write_image("rl-"+ostr.str()+"-D.tif", ImageView<pixel_type>(rl_disparity) );
-
-        ImageView<pixel_type> result = lr_disparity;
-        stereo::cross_corr_consistency_check( result,
-                                              rl_disparity, m_consistency_threshold, true );
-        result += pixel_type(m_search_region.min());
-        return prerasterize_type( result, -bbox.min().x(), -bbox.min().y(), cols(), rows() );
       }
 
       template <class DestT>
