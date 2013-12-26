@@ -53,7 +53,7 @@ struct CastVec2fFunc : public vw::ReturnFixedType<PixelMask<Vector2f> > {
 };
 
 // Simple square kernels
-float calculate_cost_d( Vector2f const& a_loc, Vector2f const& disparity,
+float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
                         ImageView<uint8> const& a, ImageView<uint8> const& b,
                         BBox2i const& a_roi, BBox2i const& b_roi, Vector2i const& kernel_size ) {
   BBox2i kernel_roi( -kernel_size/2, kernel_size/2 + Vector2i(1,1) );
@@ -87,7 +87,7 @@ float calculate_cost( Vector2f const& a_loc, Vector4f const& disparity,
 }
 
 // Floating point square cost functor that uses adaptive support weights
-float  calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
+float  calculate_cost_d( Vector2f const& a_loc, Vector2f const& disparity,
                        ImageView<uint8> const& a, ImageView<uint8> const& b,
                        BBox2i const& a_roi, BBox2i const& b_roi, Vector2i const& kernel_size ) {
   BBox2i kernel_roi( -kernel_size/2, kernel_size/2 + Vector2i(1,1) );
