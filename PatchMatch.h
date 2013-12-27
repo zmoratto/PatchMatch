@@ -13,6 +13,8 @@
 #include <vw/Stereo/Correlate.h>
 #include <vw/Stereo/CostFunctions.h>
 
+#include <FastBoxMeanVariance.h>
+
 // REMOVE!
 #include <vw/Image/MaskViews.h>
 
@@ -75,12 +77,10 @@ namespace vw {
                       float consistency_threshold );
     };
 
-    template <class Image1T, class Image2T, class IDispT>
-    class PatchMatchView : public ImageViewBase<PatchMatchView<Image1T, Image2T, IDispT> >, PatchMatchBase {
+    template <class Image1T, class Image2T>
+    class PatchMatchView : public ImageViewBase<PatchMatchView<Image1T, Image2T> >, PatchMatchBase {
       Image1T m_left_image;
       Image2T m_right_image;
-
-      IDispT m_disp_image;
 
       // Types to help me when program
       typedef typename Image1T::pixel_type Pixel1T;
@@ -133,6 +133,8 @@ namespace vw {
       template <int D_OFFSET_X,  int D_OFFSET_Y>
       void evaluate_disparity( ImageView<Pixel1T> const& a,
                                ImageView<Pixel2T> const& b,
+                               ImageView<Vector2f> const& a_mv,
+                               ImageView<Vector2f> const& b_mv,
                                Vector2i const& a_offset,  // b_offset assumed zero
                                ImageView<DispT>& ab_disp, // Gets modified on non-zero D_OFFSET
                                ImageView<float>& ab_cost  // Always modified
@@ -141,10 +143,8 @@ namespace vw {
 
 #ifdef DEBUG
         size_t improve_cnt = 0;
-        static int debug = 0;
 #endif
 
-        stereo::AbsoluteCost<ImageView<Pixel1T>, false> cost_func( a, b, Vector2i() );
 
         // My hope is that these conditionals collapse during
         // compiling because they are switching based on template
@@ -161,48 +161,24 @@ namespace vw {
           for ( int i = START_X; i >= LOWER_X && i < UPPER_X; i += DIR_X ) {
             Vector2f a_index =
               Vector2f(i,j) + a_offset;
-            DispT disp = ab_disp(i+D_OFFSET_X,j+D_OFFSET_Y);
             Vector2f b_index =
-              Vector2f(i,j) + disp + m_expansion;
+              Vector2f(i,j) + ab_disp(i+D_OFFSET_X,j+D_OFFSET_Y) + m_expansion;
 
-            ImageView<Pixel1T> local_l = crop( a, kernel_roi + a_index );
-            ImageView<Pixel2T> local_r = crop( transform_no_edge(b, TranslateTransform(-b_index[0], -b_index[1])), kernel_roi );
-
-            float lmean = mean_channel_value(local_l), lstddev = stddev_channel_value(local_l), rmean = mean_channel_value(local_r), rstddev = stddev_channel_value(local_r);
-
-#ifdef DEBUG
-            if ( D_OFFSET_X == 0 && D_OFFSET_Y == 0 &&
-                 i == 128 && j == 128 ) {
-              std::ostringstream ostr;
-              ostr << std::setw(4) << std::setfill('0') << debug <<  "_";
-              debug++;
-              std::cout << "Left accessing: " << kernel_roi + a_index << std::endl;
-              std::cout << "Right accessing: " << kernel_roi + b_index << std::endl;
-
-              write_image(ostr.str() + "L.tif", local_l );
-              write_image(ostr.str() + "R.tif", local_r );
-              write_image(ostr.str() + "Diff.tif", local_l - local_r );
-              write_image(ostr.str() + "ADiff.tif", abs(local_l - local_r ) );
-
-              std::cout << "SAD = " << sum_of_pixel_values(abs(local_l-local_r)) << std::endl;
-              std::cout << "NCC = " << sum_of_pixel_values((local_l - lmean)*(local_r - rmean) / (lstddev * rstddev))/prod(kernel_roi.size()) << std::endl;
-            }
-#endif
+            Vector2f a_mv_l = a_mv(a_index[0]-m_kernel_size[0]/2,
+                                   a_index[1]-m_kernel_size[1]/2);
+            // This is actually inexact due to rounding. If we
+            // implement searching only to integer steppings of 1/10th
+            // of a pixel .. the mean and variance can be exact again.
+            Vector2f b_mv_l = b_mv(b_index[0]-m_kernel_size[0]/2+0.5,
+                                   b_index[1]-m_kernel_size[1]/2+0.5);
 
             // This is NCC
-            // float result =
-            //   1 - sum_of_pixel_values((local_l-lmean)*(local_r-rmean) / (lstddev*rstddev)) / prod(kernel_roi.size());
-            // This is standard SAD
             float result =
-              sum_of_pixel_values(cost_func(local_l,local_r));
+              1 - sum_of_pixel_values((crop( a, kernel_roi + a_index ) - a_mv_l.x()) *
+                                      (crop( transform_no_edge(b, TranslateTransform(-b_index[0], -b_index[1])),
+                                             kernel_roi ) - b_mv_l.x()) /
+                                      (a_mv_l.y()*b_mv_l.y())) / prod(kernel_roi.size());
 
-              // sum_of_pixel_values( abs( crop( a, kernel_roi + a_index ) -
-              //                           crop( transform_no_edge(b, TranslateTransform(-b_index[0], -b_index[1])),
-              //                                 kernel_roi ) ) );
-              // (per_pixel_filter
-              //  (crop( a, kernel_roi + a_index ),
-              //   crop( transform_no_edge(b, TranslateTransform(-b_index[0], -b_index[1])),
-              //         kernel_roi ), AbsDiffFunc<Pixel1T>() ));
             if ( D_OFFSET_X == 0 && D_OFFSET_Y == 0 ) {
               // The caller is expected to call
               // 'keep_best_disparity'. Keep disparity at a later date
@@ -233,12 +209,11 @@ namespace vw {
       // Search region values are inclusive.
       PatchMatchView( ImageViewBase<Image1T> const& left,
                       ImageViewBase<Image2T> const& right,
-                      ImageViewBase<IDispT> const& trusted_disp,
                       BBox2i const& search_region, Vector2i const& kernel_size,
                       float consistency_threshold = 1 ) :
         PatchMatchBase(search_region, kernel_size,
                        consistency_threshold),
-        m_left_image(left.impl()), m_right_image(right.impl()), m_disp_image(trusted_disp.impl()) {}
+        m_left_image(left.impl()), m_right_image(right.impl()) {}
 
       // Standard required ImageView interfaces
       inline int32 cols() const { return m_left_image.cols(); }
@@ -309,19 +284,23 @@ namespace vw {
         fill( l_disp, DispT() ); // TODO Is this needed?
         fill( r_disp, DispT() );
 
-        l_disp = apply_mask(crop(m_disp_image,l_roi)) - m_search_region.min();
+        // N. Calculate Mean and Variance for NCC
+        ImageView<Vector2f> l_exp_mv =
+          fast_box_mean_variance<float>(l_exp, m_kernel_size);
+        ImageView<Vector2f> r_exp_mv =
+          fast_box_mean_variance<float>(r_exp, m_kernel_size);
 
         // 7. Write uniform noise
-//        add_uniform_noise( Vector2f(0,0), m_search_size_f,
-//                           l_disp );
+        add_uniform_noise( Vector2f(0,0), m_search_size_f,
+                           l_disp );
         add_uniform_noise( Vector2f(0,0), m_search_size_f,
                            r_disp );
 
         // 8. Evaluate the current disparities
-        evaluate_disparity<0,0>(l_exp, r_exp,
+        evaluate_disparity<0,0>(l_exp, r_exp, l_exp_mv, r_exp_mv,
                                 l_roi.min() - l_exp_roi.min(),
                                 l_disp, l_cost);
-        evaluate_disparity<0,0>(r_exp, l_exp,
+        evaluate_disparity<0,0>(r_exp, l_exp, r_exp_mv, l_exp_mv,
                                 r_roi.min() - r_exp_roi.min(),
                                 r_disp, r_cost);
 #ifdef DEBUG
@@ -341,51 +320,56 @@ namespace vw {
 #endif
           if ( iterations & 1 ) {
             // 9.1 Compare to Left
-            evaluate_disparity<-1,0>(l_exp, r_exp,
+            evaluate_disparity<-1,0>(l_exp, r_exp, l_exp_mv, r_exp_mv,
                                      l_roi.min() - l_exp_roi.min(),
                                      l_disp, l_cost);
 #ifdef DEBUG
             write_image( ostr.str() + "0-D.tif", l_disp );
             std::cout << "After left:\t" << sum_of_pixel_values(l_cost) << std::endl;
 #endif
-            evaluate_disparity<-1,0>(r_exp, l_exp,
+            evaluate_disparity<-1,0>(r_exp, l_exp, r_exp_mv, l_exp_mv,
                                      r_roi.min() - r_exp_roi.min(),
                                      r_disp, r_cost);
 
             // 9.2 Compare to Above
-            evaluate_disparity<0,-1>(l_exp, r_exp,
+            evaluate_disparity<0,-1>(l_exp, r_exp, l_exp_mv, r_exp_mv,
                                      l_roi.min() - l_exp_roi.min(),
                                      l_disp, l_cost);
 #ifdef DEBUG
             write_image( ostr.str() + "1-D.tif", l_disp );
             std::cout << "After Above:\t" << sum_of_pixel_values(l_cost) << std::endl;
 #endif
-            evaluate_disparity<0,-1>(r_exp, l_exp,
+            evaluate_disparity<0,-1>(r_exp, l_exp, r_exp_mv, l_exp_mv,
                                      r_roi.min() - r_exp_roi.min(),
                                      r_disp, r_cost);
           } else {
             // 9.3 Compare to Right
-            evaluate_disparity<1,0>(l_exp, r_exp, l_roi.min() - l_exp_roi.min(), l_disp, l_cost);
+            evaluate_disparity<1,0>(l_exp, r_exp, l_exp_mv, r_exp_mv,
+                                    l_roi.min() - l_exp_roi.min(), l_disp, l_cost);
 #ifdef DEBUG
             write_image( ostr.str() + "2-D.tif", l_disp );
             std::cout << "After right:\t" << sum_of_pixel_values(l_cost) << std::endl;
 #endif
-            evaluate_disparity<1,0>(r_exp, l_exp, r_roi.min() - r_exp_roi.min(), r_disp, r_cost);
+            evaluate_disparity<1,0>(r_exp, l_exp, r_exp_mv, l_exp_mv,
+                                    r_roi.min() - r_exp_roi.min(), r_disp, r_cost);
 
             // 9.4 Compare to Bottom
-            evaluate_disparity<0,1>(l_exp, r_exp, l_roi.min() - l_exp_roi.min(), l_disp, l_cost);
+            evaluate_disparity<0,1>(l_exp, r_exp, l_exp_mv, r_exp_mv,
+                                    l_roi.min() - l_exp_roi.min(), l_disp, l_cost);
 #ifdef DEBUG
             write_image( ostr.str() + "3-D.tif", l_disp );
             std::cout << "After bottom:\t" << sum_of_pixel_values(l_cost) << std::endl;
 #endif
-            evaluate_disparity<0,1>(r_exp, l_exp, r_roi.min() - r_exp_roi.min(), r_disp, r_cost);
+            evaluate_disparity<0,1>(r_exp, l_exp, r_exp_mv, l_exp_mv,
+                                    r_roi.min() - r_exp_roi.min(), r_disp, r_cost);
           }
 
           // 9.5 Compare LR against RL
           std::copy( l_disp.data(), l_disp.data() + prod(l_roi.size()), l_disp_f.data() );
           transfer_disparity( l_disp_f, l_roi.min() - l_exp_roi.min(),
                               r_disp, r_roi.min() - r_exp_roi.min() );
-          evaluate_disparity<0,0>(l_exp, r_exp, l_roi.min() - l_exp_roi.min(), l_disp_f, l_cost_f);
+          evaluate_disparity<0,0>(l_exp, r_exp, l_exp_mv, r_exp_mv,
+                                  l_roi.min() - l_exp_roi.min(), l_disp_f, l_cost_f);
           keep_best_disparity(l_disp, l_cost, l_disp_f, l_cost_f );
 #ifdef DEBUG
           write_image( ostr.str() + "4-D.tif", l_disp );
@@ -396,7 +380,8 @@ namespace vw {
           std::copy( r_disp.data(), r_disp.data() + prod(r_roi.size()), r_disp_f.data() );
           transfer_disparity( r_disp_f, r_roi.min() - r_exp_roi.min(),
                               l_disp, l_roi.min() - l_exp_roi.min() );
-          evaluate_disparity<0,0>(r_exp, l_exp, r_roi.min() - r_exp_roi.min(), r_disp_f, r_cost_f);
+          evaluate_disparity<0,0>(r_exp, l_exp, r_exp_mv, l_exp_mv,
+                                  r_roi.min() - r_exp_roi.min(), r_disp_f, r_cost_f);
           keep_best_disparity(r_disp, r_cost, r_disp_f, r_cost_f );
 
           // 9.7 Add noise and evaluate disparity
@@ -406,8 +391,10 @@ namespace vw {
           std::copy( r_disp.data(), r_disp.data() + prod(r_roi.size()), r_disp_f.data() );
           add_uniform_noise( -half_search, half_search, l_disp_f );
           add_uniform_noise( -half_search, half_search, r_disp_f );
-          evaluate_disparity<0,0>(l_exp, r_exp, l_roi.min() - l_exp_roi.min(), l_disp_f, l_cost_f);
-          evaluate_disparity<0,0>(r_exp, l_exp, r_roi.min() - r_exp_roi.min(), r_disp_f, r_cost_f);
+          evaluate_disparity<0,0>(l_exp, r_exp, l_exp_mv, r_exp_mv,
+                                  l_roi.min() - l_exp_roi.min(), l_disp_f, l_cost_f);
+          evaluate_disparity<0,0>(r_exp, l_exp, r_exp_mv, l_exp_mv,
+                                  r_roi.min() - r_exp_roi.min(), r_disp_f, r_cost_f);
           keep_best_disparity(l_disp, l_cost, l_disp_f, l_cost_f);
           keep_best_disparity(r_disp, r_cost, r_disp_f, r_cost_f);
 #ifdef DEBUG
@@ -435,15 +422,14 @@ namespace vw {
       }
     };
 
-    template <class Image1T, class Image2T, class IDispT>
-    PatchMatchView<Image1T,Image2T,IDispT>
+    template <class Image1T, class Image2T>
+    PatchMatchView<Image1T,Image2T>
     patch_match( ImageViewBase<Image1T> const& left,
                  ImageViewBase<Image2T> const& right,
-                 ImageViewBase<IDispT> const& disparity,
                  BBox2i const& search_region, Vector2i const& kernel_size,
                  float consistency_threshold = 1 ) {
-      typedef PatchMatchView<Image1T,Image2T,IDispT> result_type;
-      return result_type( left.impl(), right.impl(), disparity.impl(), search_region,
+      typedef PatchMatchView<Image1T,Image2T> result_type;
+      return result_type( left.impl(), right.impl(), search_region,
                           kernel_size, consistency_threshold );
     }
   }} // vw::stereo
