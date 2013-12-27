@@ -3,13 +3,13 @@
 #include <vw/FileIO.h>
 #include <vw/Stereo/DisparityMap.h>
 #include <vw/Stereo/Correlate.h>
+#include <PatchMatch.h>
+
 #include <gtest/gtest.h>
 
 #include <boost/random/linear_congruential.hpp>
 #include <boost/random/uniform_01.hpp>
 #include <boost/lexical_cast.hpp>
-
-#include <PatchMatch.h>
 
 namespace vw {
   template<> struct PixelFormatID<Vector2f> { static const PixelFormatEnum value = VW_PIXEL_GENERIC_2_CHANNEL; };
@@ -287,15 +287,18 @@ void evaluate_new_search( ImageView<uint8> const& a, ImageView<uint8> const& b,
 
 TEST( PatchMatch, Basic ) {
   ImageView<PixelGray<uint8> > left_image, right_image;
-  read_image(left_image,"../SemiGlobalMatching/data/cones/im2.png");
-  read_image(right_image,"../SemiGlobalMatching/data/cones/im6.png");
+  read_image(left_image,"../SemiGlobalMatching/data/moc/epi-L.crop.tif");
+  read_image(right_image,"../SemiGlobalMatching/data/moc/epi-R.crop.tif");
+  //  read_image(left_image,"../SemiGlobalMatching/data/cones/im2.png");
+  //  read_image(right_image,"../SemiGlobalMatching/data/cones/im6.png");
 
   // This are our disparity guess. The Vector2f represents a window offset
   ImageView<DispT> lr_disparity(left_image.cols(),left_image.rows()),
     rl_disparity(right_image.cols(),right_image.rows());
-  boost::rand48 gen(std::rand());
+  boost::rand48 gen(0);
   typedef boost::variate_generator<boost::rand48, boost::random::uniform_01<> > vargen_type;
-  BBox2f search_range(Vector2f(-128,-1),Vector2f(0,1)); // inclusive
+  BBox2f search_range(Vector2f(-12,-9),Vector2f(36,29)); // inclusive
+  //  BBox2f search_range(Vector2f(-128,-1),Vector2f(0,1)); // inclusive
   vargen_type random_source(gen, boost::random::uniform_01<>());
   Vector2f search_range_size = search_range.size();
   BBox2f search_range_rl( -search_range.max(), -search_range.min() );
@@ -397,8 +400,8 @@ TEST( PatchMatch, PatchMatchView ) {
 
   block_write_image( "final_disparity_pmview-D.tif",
                      stereo::patch_match( left_image, right_image,
-                                          BBox2i(Vector2i(-128,-1),Vector2i(0,1)),
-                                          Vector2i(11,11) ),
+                                          BBox2i(Vector2i(-128,-100),Vector2i(64,100)),
+                                          Vector2i(15,15) ),
                      TerminalProgressCallback("test","PatchMatch:") );
 }
 
