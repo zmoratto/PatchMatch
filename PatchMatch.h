@@ -15,8 +15,6 @@
 
 #include <FastBoxMeanVariance.h>
 
-// REMOVE!
-#include <vw/Image/MaskViews.h>
 
 #ifdef DEBUG
 #include <iomanip>
@@ -164,20 +162,61 @@ namespace vw {
             Vector2f b_index =
               Vector2f(i,j) + ab_disp(i+D_OFFSET_X,j+D_OFFSET_Y) + m_expansion;
 
-            Vector2f a_mv_l = a_mv(a_index[0]-m_kernel_size[0]/2,
+            // Rasterize before hand for calculating masks
+            ImageView<double> lcrop = crop( a, kernel_roi + a_index );
+            ImageView<double> rcrop = crop( transform_no_edge(b, TranslateTransform(-b_index[0], -b_index[1])),
+                                             kernel_roi );
+
+            Vector2 a_mv_l = a_mv(a_index[0]-m_kernel_size[0]/2,
                                    a_index[1]-m_kernel_size[1]/2);
             // This is actually inexact due to rounding. If we
             // implement searching only to integer steppings of 1/10th
             // of a pixel .. the mean and variance can be exact again.
-            Vector2f b_mv_l = b_mv(b_index[0]-m_kernel_size[0]/2+0.5,
+            Vector2 b_mv_l = b_mv(b_index[0]-m_kernel_size[0]/2+0.5,
                                    b_index[1]-m_kernel_size[1]/2+0.5);
 
-            // This is NCC
-            float result =
-              1 - sum_of_pixel_values((crop( a, kernel_roi + a_index ) - a_mv_l.x()) *
-                                      (crop( transform_no_edge(b, TranslateTransform(-b_index[0], -b_index[1])),
-                                             kernel_roi ) - b_mv_l.x()) /
-                                      (a_mv_l.y()*b_mv_l.y())) / prod(kernel_roi.size());
+#if 0
+            // This is simple NCC
+            double result = sum_of_pixel_values(abs(lcrop-rcrop));
+            // double result =
+            //   1 - sum_of_pixel_values((lcrop - a_mv_l.x()) *
+            //                           (rcrop - b_mv_l.x()) / (a_mv_l.y()*b_mv_l.y()) ) /
+            //   (prod(kernel_roi.size()) * 1 );
+#else
+            // This is NCC with adaptive support weights
+            ImageView<double>
+              weight(m_kernel_size.x(),m_kernel_size.y());
+            Vector2 center_index = m_kernel_size/2;
+            double left_color = lcrop(center_index[0],center_index[1]),
+              right_color = rcrop(center_index[0],center_index[1]);
+            double kernel_diag = norm_2(m_kernel_size);
+            double sum = 0;
+            const double color_weight = 0.0549f * double(ChannelRange<typename CompoundChannelType<Pixel1T>::type>::max() - ChannelRange<typename CompoundChannelType<Pixel1T>::type>::min());
+            for ( int jk = 0; jk < m_kernel_size.y(); jk++ ) {
+              for ( int ik = 0; ik < m_kernel_size.x(); ik++ ) {
+                // This could be precomputed?
+                double dist = norm_2( Vector2(ik,jk) - center_index )/kernel_diag;
+                double lcdist =
+                  fabs( lcrop(ik,jk) - left_color ); // This could be
+                                                   // done as an
+                                                   // operation on a
+                                                   // new buffer?
+                double rcdist = fabs( rcrop(ik,jk) - right_color );
+                sum += weight(ik,jk) = exp(-lcdist/color_weight - dist) * exp(-rcdist/color_weight - dist);
+              }
+            }
+
+            // NCC no weights
+            // double result = 1 - sum_of_pixel_values(lcrop*rcrop)/sqrt(sum_of_pixel_values(square(lcrop))*sum_of_pixel_values(square(rcrop)));
+            // NCC weights
+             double result =
+               1 - sum_of_pixel_values(lcrop*rcrop*weight)/(sqrt(sum_of_pixel_values(weight*square(lcrop))*sum_of_pixel_values(weight*square(rcrop))));
+            // ZNCC weights
+            // double result =
+            //   1 - sum_of_pixel_values((lcrop - a_mv_l.x()) * weight *
+            //                           (rcrop - b_mv_l.x()) ) / // / (a_mv_l.y() * b_mv_l.y()) ) /
+            //   ( sum );
+#endif
 
             if ( D_OFFSET_X == 0 && D_OFFSET_Y == 0 ) {
               // The caller is expected to call
@@ -213,7 +252,8 @@ namespace vw {
                       float consistency_threshold = 1 ) :
         PatchMatchBase(search_region, kernel_size,
                        consistency_threshold),
-        m_left_image(left.impl()), m_right_image(right.impl()) {}
+        m_left_image(left.impl()), m_right_image(right.impl()) {
+      }
 
       // Standard required ImageView interfaces
       inline int32 cols() const { return m_left_image.cols(); }

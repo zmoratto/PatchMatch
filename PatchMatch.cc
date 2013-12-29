@@ -1,6 +1,8 @@
 #include "PatchMatch.h"
-
 #include <vw/Core/Exception.h>
+#include <vw/Math/BBox.h>
+#include <vw/Math/Vector.h>
+#include <vw/Image/ImageView.h>
 
 #include <boost/random/uniform_real_distribution.hpp>
 #include <boost/random/variate_generator.hpp>

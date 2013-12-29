@@ -299,7 +299,7 @@ TEST( PatchMatch, Basic ) {
   vargen_type random_source(gen, boost::random::uniform_01<>());
   Vector2f search_range_size = search_range.size();
   BBox2f search_range_rl( -search_range.max(), -search_range.min() );
-  Vector2i kernel_size(11,11);
+  Vector2i kernel_size(15,15);
 
   for (int j = 0; j < lr_disparity.rows(); j++ ) {
     for (int i = 0; i < lr_disparity.cols(); i++ ) {
@@ -394,11 +394,10 @@ TEST( PatchMatch, PatchMatchView ) {
     left_image("../SemiGlobalMatching/data/cones/im2.png"),
     right_image("../SemiGlobalMatching/data/cones/im6.png");
 
-
   block_write_image( "final_disparity_pmview-D.tif",
                      stereo::patch_match( left_image, right_image,
-                                          BBox2i(Vector2i(-128,-100),Vector2i(64,100)),
-                                          Vector2i(11,11) ),
+                                          BBox2i(Vector2i(-64,-1),Vector2i(0,1)),
+                                          Vector2i(15,15) ),
                      TerminalProgressCallback("test","PatchMatch:") );
 }
 
