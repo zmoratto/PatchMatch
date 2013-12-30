@@ -119,9 +119,9 @@ namespace vw {
         const int UPPER_X = D_OFFSET_X < 1 ? ab_disp.cols() : ab_disp.cols() - 1;
         const int UPPER_Y = D_OFFSET_Y < 1 ? ab_disp.rows() : ab_disp.rows() - 1;
         for ( int j = START_Y; j >= LOWER_Y && j < UPPER_Y; j += DIR_Y ) {
+          Vector2f a_index =
+            Vector2f(0,j) + a_offset;
           for ( int i = START_X; i >= LOWER_X && i < UPPER_X; i += DIR_X ) {
-            Vector2f a_index =
-              Vector2f(i,j) + a_offset;
             Vector2f b_index =
               Vector2f(i,j) + ab_disp(i+D_OFFSET_X,j+D_OFFSET_Y) + m_expansion;
 
@@ -192,6 +192,8 @@ namespace vw {
                 ab_disp(i,j) = ab_disp(i+D_OFFSET_X,j+D_OFFSET_Y);
               }
             }
+
+            a_index.x()++;
           }
         }
 #ifdef DEBUG
