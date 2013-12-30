@@ -143,19 +143,33 @@ namespace vw {
             float left_color = lcrop(m_kernel_size.x()/2,m_kernel_size.y()/2),
               right_color = rcrop(m_kernel_size.x()/2,m_kernel_size.y()/2);
             float sum = 0;
-            for ( int jk = 0; jk < m_kernel_size.y(); jk++ ) {
-              for ( int ik = 0; ik < m_kernel_size.x(); ik++ ) {
-                // Left side could be precomputed
-                weight(ik,jk) *= exp(-fabs( lcrop(ik,jk) - left_color )/color_weight -
-                                     fabs( rcrop(ik,jk) - right_color )/color_weight);
-                sum += weight(ik,jk);
-              }
+            float* weight_ptr = weight.data();
+            float* lcrop_ptr = lcrop.data();
+            float* rcrop_ptr = rcrop.data();
+            float* weight_end = weight.data() + prod(m_kernel_size);
+            while ( weight_ptr != weight_end ) {
+              // This equation can't be vectorized easily? Maybe
+              // allocate a temporary buffer and do this in multiple
+              // passes so it can be vectorized?
+
+              // Parts of the weighted kernel could be precomputed as
+              // it gets reused.
+              *weight_ptr *=
+                exp((-fabs(*lcrop_ptr - left_color) - fabs(*rcrop_ptr - right_color))/color_weight);
+              sum += *weight_ptr;
+              weight_ptr++;
+              lcrop_ptr++;
+              rcrop_ptr++;
             }
+
+            // Square of left could be precomputed.
+            // Square of right could be precomputed.
 
             // NCC weights
             float result =
               1 - sum_of_pixel_values(lcrop*rcrop*weight) /
-              sqrt(sum_of_pixel_values(weight*square(lcrop))*sum_of_pixel_values(weight*square(rcrop)));
+              sqrt(sum_of_pixel_values(weight * square(lcrop)) *
+                   sum_of_pixel_values(weight * square(rcrop)));
             // ZNCC weights
             // double result =
             //   1 - sum_of_pixel_values((lcrop - a_mv_l.x()) * weight *
