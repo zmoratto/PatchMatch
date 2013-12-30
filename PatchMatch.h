@@ -13,9 +13,6 @@
 #include <vw/Stereo/Correlate.h>
 #include <vw/Stereo/CostFunctions.h>
 
-#include <FastBoxMeanVariance.h>
-
-
 #ifdef DEBUG
 #include <iomanip>
 
@@ -39,6 +36,7 @@ namespace vw {
       Vector2f m_search_size_f;
       Vector2i m_expansion;
       float m_consistency_threshold;
+      ImageView<float> m_weight;
 
       typedef Vector2f DispT;
       typedef boost::random::rand48 GenT;
@@ -91,58 +89,23 @@ namespace vw {
         return TransformView<InterpolationView<ImageT, BilinearInterpolation>, TransformT>( InterpolationView<ImageT, BilinearInterpolation>( v.impl() ), transform_func );
       }
 
-      // // Floating point square cost functor that uses adaptive support weights
-      // float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
-      //                       ImageView<Pixel1T> const& a, ImageView<Pixel2T> const& b,
-      //                       BBox2i const& a_roi, BBox2i const& b_roi ) const {
-      //   BBox2i kernel_roi( -m_kernel_size/2, m_kernel_size/2 + Vector2i(1,1) );
-
-      //   ImageView<float> left_kernel
-      //     = crop(a, kernel_roi + a_loc - a_roi.min() );
-      //   ImageView<float> right_kernel
-      //     = crop( transform_no_edge(b,
-      //                               TranslateTransform(-(a_loc.x() + disparity[0] - float(b_roi.min().x())),
-      //                                                  -(a_loc.y() + disparity[1] - float(b_roi.min().y())))),
-      //             kernel_roi );
-
-      //   // Calculate support weights for left and right
-      //   ImageView<float>
-      //     weight(m_kernel_size.x(),m_kernel_size.y());
-
-      //   Vector2f center_index = m_kernel_size/2;
-      //   float left_color = left_kernel(center_index[0],center_index[1]),
-      //     right_color = right_kernel(center_index[0],center_index[1]);
-      //   float kernel_diag = norm_2(m_kernel_size);
-      //   float sum = 0;
-      //   for ( int j = 0; j < m_kernel_size.y(); j++ ) {
-      //     for ( int i = 0; i < m_kernel_size.x(); i++ ) {
-      //       float dist = norm_2( Vector2f(i,j) - center_index )/kernel_diag;
-      //       //float dist = 0;
-      //       float lcdist = fabs( left_kernel(i,j) - left_color );
-      //       float rcdist = fabs( right_kernel(i,j) - right_color );
-      //       sum += weight(i,j) = exp(-lcdist/14 - dist) * exp(-rcdist/14 - dist);
-      //     }
-      //   }
-
-      //   return sum_of_pixel_values( weight * per_pixel_filter(left_kernel,right_kernel,AbsDiffFunc<float>())) / sum;
-      // }
-
       // Takes a disparity and writes to cost
       template <int D_OFFSET_X,  int D_OFFSET_Y>
       void evaluate_disparity( ImageView<Pixel1T> const& a,
                                ImageView<Pixel2T> const& b,
-                               ImageView<Vector2f> const& a_mv,
-                               ImageView<Vector2f> const& b_mv,
                                Vector2i const& a_offset,  // b_offset assumed zero
                                ImageView<DispT>& ab_disp, // Gets modified on non-zero D_OFFSET
                                ImageView<float>& ab_cost  // Always modified
                                ) const {
         BBox2i kernel_roi( -m_kernel_size/2, m_kernel_size/2 + Vector2i(1,1) );
+        // Possibly there should be one for the left and one for the right?
+        const float color_weight = 0.0549f * float(ChannelRange<typename CompoundChannelType<Pixel1T>::type>::max() - ChannelRange<typename CompoundChannelType<Pixel1T>::type>::min());
 
 #ifdef DEBUG
         size_t improve_cnt = 0;
 #endif
 
+        ImageView<float> lcrop, rcrop;
 
         // My hope is that these conditionals collapse during
         // compiling because they are switching based on template
@@ -163,54 +126,36 @@ namespace vw {
               Vector2f(i,j) + ab_disp(i+D_OFFSET_X,j+D_OFFSET_Y) + m_expansion;
 
             // Rasterize before hand for calculating masks
-            ImageView<double> lcrop = crop( a, kernel_roi + a_index );
-            ImageView<double> rcrop = crop( transform_no_edge(b, TranslateTransform(-b_index[0], -b_index[1])),
-                                             kernel_roi );
-
-            Vector2 a_mv_l = a_mv(a_index[0]-m_kernel_size[0]/2,
-                                   a_index[1]-m_kernel_size[1]/2);
-            // This is actually inexact due to rounding. If we
-            // implement searching only to integer steppings of 1/10th
-            // of a pixel .. the mean and variance can be exact again.
-            Vector2 b_mv_l = b_mv(b_index[0]-m_kernel_size[0]/2+0.5,
-                                   b_index[1]-m_kernel_size[1]/2+0.5);
+            lcrop = crop( a, kernel_roi + a_index );
+            rcrop = crop( transform_no_edge(b, TranslateTransform(-b_index[0], -b_index[1])),
+                          kernel_roi );
 
 #if 0
             // This is simple NCC
-            double result = sum_of_pixel_values(abs(lcrop-rcrop));
-            // double result =
-            //   1 - sum_of_pixel_values((lcrop - a_mv_l.x()) *
-            //                           (rcrop - b_mv_l.x()) / (a_mv_l.y()*b_mv_l.y()) ) /
-            //   (prod(kernel_roi.size()) * 1 );
+            double result =
+              1 - sum_of_pixel_values(lcrop*rcrop)/sqrt(sum_of_pixel_values(square(lcrop))*sum_of_pixel_values(square(rcrop)));
+
+            // This is simple SAD
+            // double result = sum_of_pixel_values(abs(lcrop-rcrop));
 #else
             // This is NCC with adaptive support weights
-            ImageView<double>
-              weight(m_kernel_size.x(),m_kernel_size.y());
-            Vector2 center_index = m_kernel_size/2;
-            double left_color = lcrop(center_index[0],center_index[1]),
-              right_color = rcrop(center_index[0],center_index[1]);
-            double kernel_diag = norm_2(m_kernel_size);
-            double sum = 0;
-            const double color_weight = 0.0549f * double(ChannelRange<typename CompoundChannelType<Pixel1T>::type>::max() - ChannelRange<typename CompoundChannelType<Pixel1T>::type>::min());
+            ImageView<float> weight = copy(m_weight);
+            float left_color = lcrop(m_kernel_size.x()/2,m_kernel_size.y()/2),
+              right_color = rcrop(m_kernel_size.x()/2,m_kernel_size.y()/2);
+            float sum = 0;
             for ( int jk = 0; jk < m_kernel_size.y(); jk++ ) {
               for ( int ik = 0; ik < m_kernel_size.x(); ik++ ) {
-                // This could be precomputed?
-                double dist = norm_2( Vector2(ik,jk) - center_index )/kernel_diag;
-                double lcdist =
-                  fabs( lcrop(ik,jk) - left_color ); // This could be
-                                                   // done as an
-                                                   // operation on a
-                                                   // new buffer?
-                double rcdist = fabs( rcrop(ik,jk) - right_color );
-                sum += weight(ik,jk) = exp(-lcdist/color_weight - dist) * exp(-rcdist/color_weight - dist);
+                // Left side could be precomputed
+                weight(ik,jk) *= exp(-fabs( lcrop(ik,jk) - left_color )/color_weight -
+                                     fabs( rcrop(ik,jk) - right_color )/color_weight);
+                sum += weight(ik,jk);
               }
             }
 
-            // NCC no weights
-            // double result = 1 - sum_of_pixel_values(lcrop*rcrop)/sqrt(sum_of_pixel_values(square(lcrop))*sum_of_pixel_values(square(rcrop)));
             // NCC weights
-             double result =
-               1 - sum_of_pixel_values(lcrop*rcrop*weight)/(sqrt(sum_of_pixel_values(weight*square(lcrop))*sum_of_pixel_values(weight*square(rcrop))));
+            float result =
+              1 - sum_of_pixel_values(lcrop*rcrop*weight) /
+              sqrt(sum_of_pixel_values(weight*square(lcrop))*sum_of_pixel_values(weight*square(rcrop)));
             // ZNCC weights
             // double result =
             //   1 - sum_of_pixel_values((lcrop - a_mv_l.x()) * weight *
@@ -324,12 +269,6 @@ namespace vw {
         fill( l_disp, DispT() ); // TODO Is this needed?
         fill( r_disp, DispT() );
 
-        // N. Calculate Mean and Variance for NCC
-        ImageView<Vector2f> l_exp_mv =
-          fast_box_mean_variance<float>(l_exp, m_kernel_size);
-        ImageView<Vector2f> r_exp_mv =
-          fast_box_mean_variance<float>(r_exp, m_kernel_size);
-
         // 7. Write uniform noise
         add_uniform_noise( Vector2f(0,0), m_search_size_f,
                            l_disp );
@@ -337,10 +276,10 @@ namespace vw {
                            r_disp );
 
         // 8. Evaluate the current disparities
-        evaluate_disparity<0,0>(l_exp, r_exp, l_exp_mv, r_exp_mv,
+        evaluate_disparity<0,0>(l_exp, r_exp,
                                 l_roi.min() - l_exp_roi.min(),
                                 l_disp, l_cost);
-        evaluate_disparity<0,0>(r_exp, l_exp, r_exp_mv, l_exp_mv,
+        evaluate_disparity<0,0>(r_exp, l_exp,
                                 r_roi.min() - r_exp_roi.min(),
                                 r_disp, r_cost);
 #ifdef DEBUG
@@ -360,47 +299,47 @@ namespace vw {
 #endif
           if ( iterations & 1 ) {
             // 9.1 Compare to Left
-            evaluate_disparity<-1,0>(l_exp, r_exp, l_exp_mv, r_exp_mv,
+            evaluate_disparity<-1,0>(l_exp, r_exp,
                                      l_roi.min() - l_exp_roi.min(),
                                      l_disp, l_cost);
 #ifdef DEBUG
             write_image( ostr.str() + "0-D.tif", l_disp );
             std::cout << "After left:\t" << sum_of_pixel_values(l_cost) << std::endl;
 #endif
-            evaluate_disparity<-1,0>(r_exp, l_exp, r_exp_mv, l_exp_mv,
+            evaluate_disparity<-1,0>(r_exp, l_exp,
                                      r_roi.min() - r_exp_roi.min(),
                                      r_disp, r_cost);
 
             // 9.2 Compare to Above
-            evaluate_disparity<0,-1>(l_exp, r_exp, l_exp_mv, r_exp_mv,
+            evaluate_disparity<0,-1>(l_exp, r_exp,
                                      l_roi.min() - l_exp_roi.min(),
                                      l_disp, l_cost);
 #ifdef DEBUG
             write_image( ostr.str() + "1-D.tif", l_disp );
             std::cout << "After Above:\t" << sum_of_pixel_values(l_cost) << std::endl;
 #endif
-            evaluate_disparity<0,-1>(r_exp, l_exp, r_exp_mv, l_exp_mv,
+            evaluate_disparity<0,-1>(r_exp, l_exp,
                                      r_roi.min() - r_exp_roi.min(),
                                      r_disp, r_cost);
           } else {
             // 9.3 Compare to Right
-            evaluate_disparity<1,0>(l_exp, r_exp, l_exp_mv, r_exp_mv,
+            evaluate_disparity<1,0>(l_exp, r_exp,
                                     l_roi.min() - l_exp_roi.min(), l_disp, l_cost);
 #ifdef DEBUG
             write_image( ostr.str() + "2-D.tif", l_disp );
             std::cout << "After right:\t" << sum_of_pixel_values(l_cost) << std::endl;
 #endif
-            evaluate_disparity<1,0>(r_exp, l_exp, r_exp_mv, l_exp_mv,
+            evaluate_disparity<1,0>(r_exp, l_exp,
                                     r_roi.min() - r_exp_roi.min(), r_disp, r_cost);
 
             // 9.4 Compare to Bottom
-            evaluate_disparity<0,1>(l_exp, r_exp, l_exp_mv, r_exp_mv,
+            evaluate_disparity<0,1>(l_exp, r_exp,
                                     l_roi.min() - l_exp_roi.min(), l_disp, l_cost);
 #ifdef DEBUG
             write_image( ostr.str() + "3-D.tif", l_disp );
             std::cout << "After bottom:\t" << sum_of_pixel_values(l_cost) << std::endl;
 #endif
-            evaluate_disparity<0,1>(r_exp, l_exp, r_exp_mv, l_exp_mv,
+            evaluate_disparity<0,1>(r_exp, l_exp,
                                     r_roi.min() - r_exp_roi.min(), r_disp, r_cost);
           }
 
@@ -408,7 +347,7 @@ namespace vw {
           std::copy( l_disp.data(), l_disp.data() + prod(l_roi.size()), l_disp_f.data() );
           transfer_disparity( l_disp_f, l_roi.min() - l_exp_roi.min(),
                               r_disp, r_roi.min() - r_exp_roi.min() );
-          evaluate_disparity<0,0>(l_exp, r_exp, l_exp_mv, r_exp_mv,
+          evaluate_disparity<0,0>(l_exp, r_exp,
                                   l_roi.min() - l_exp_roi.min(), l_disp_f, l_cost_f);
           keep_best_disparity(l_disp, l_cost, l_disp_f, l_cost_f );
 #ifdef DEBUG
@@ -420,7 +359,7 @@ namespace vw {
           std::copy( r_disp.data(), r_disp.data() + prod(r_roi.size()), r_disp_f.data() );
           transfer_disparity( r_disp_f, r_roi.min() - r_exp_roi.min(),
                               l_disp, l_roi.min() - l_exp_roi.min() );
-          evaluate_disparity<0,0>(r_exp, l_exp, r_exp_mv, l_exp_mv,
+          evaluate_disparity<0,0>(r_exp, l_exp,
                                   r_roi.min() - r_exp_roi.min(), r_disp_f, r_cost_f);
           keep_best_disparity(r_disp, r_cost, r_disp_f, r_cost_f );
 
@@ -431,9 +370,9 @@ namespace vw {
           std::copy( r_disp.data(), r_disp.data() + prod(r_roi.size()), r_disp_f.data() );
           add_uniform_noise( -half_search, half_search, l_disp_f );
           add_uniform_noise( -half_search, half_search, r_disp_f );
-          evaluate_disparity<0,0>(l_exp, r_exp, l_exp_mv, r_exp_mv,
+          evaluate_disparity<0,0>(l_exp, r_exp,
                                   l_roi.min() - l_exp_roi.min(), l_disp_f, l_cost_f);
-          evaluate_disparity<0,0>(r_exp, l_exp, r_exp_mv, l_exp_mv,
+          evaluate_disparity<0,0>(r_exp, l_exp,
                                   r_roi.min() - r_exp_roi.min(), r_disp_f, r_cost_f);
           keep_best_disparity(l_disp, l_cost, l_disp_f, l_cost_f);
           keep_best_disparity(r_disp, r_cost, r_disp_f, r_cost_f);

@@ -169,11 +169,20 @@ stereo::PatchMatchBase::mark_invalid( ImageView<PixelMask<DispT> >& dest_disp,
 stereo::PatchMatchBase::PatchMatchBase( BBox2i const& search_region, Vector2i const& kernel,
                                         float consistency_threshold ) :
   m_search_region( search_region ), m_kernel_size( kernel ),
-  m_consistency_threshold( consistency_threshold ) {
+  m_consistency_threshold( consistency_threshold ),
+  m_weight(kernel.x(),kernel.y()) {
   m_search_size = m_search_region.size();
   m_search_size_f = m_search_size;
   m_expansion = m_kernel_size / 2;
   m_expansion +=
     Vector2i( BilinearInterpolation::pixel_buffer,
               BilinearInterpolation::pixel_buffer );
+
+  Vector2f center_index = Vector2f(m_kernel_size - Vector2f(1,1))/2.0f;
+  float kernel_diag = norm_2(m_kernel_size);
+  for ( int jk = 0; jk < m_kernel_size.y(); jk++ ) {
+    for ( int ik = 0; ik < m_kernel_size.x(); ik++ ) {
+      m_weight(ik,jk) = exp(-norm_2( Vector2f(ik,jk) - center_index ) / kernel_diag);
+    }
+  }
 }
