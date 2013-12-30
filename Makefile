@@ -4,7 +4,7 @@ BDIR=$(HOME)/packages/base_system
 
 CXXFLAGS += -g -Ofast -DNDEBUG -I$(BDIR)/include -I$(BDIR)/include/boost-1_55 -I$(VWDIR)/include -I$(PWD) -ffast-math -Wall -Wno-unused-local-typedefs #-DVW_ENABLE_BOUNDS_CHECK=1
 
-LDFLAGS += -L$(BDIR)/lib -lboost_system-mt-1_55 -lboost_thread-mt-1_55 -lboost_filesystem-mt-1_55 -L$(VWDIR)/lib -lvwCore -lvwMath -lvwFileIO -lvwImage -L$(GTEST)/lib -L$(PWD) -lgtest -lpthread -Wl,-rpath,$(BDIR)/lib -Wl,-rpath,$(VWDIR)/lib
+LDFLAGS += -L$(BDIR)/lib -lboost_system-mt-1_55 -lboost_thread-mt-1_55 -lboost_filesystem-mt-1_55 -lboost_program_options-mt-1_55 -L$(VWDIR)/lib -lvwCore -lvwMath -lvwFileIO -lvwImage -L$(GTEST)/lib -L$(PWD) -lgtest -lpthread -Wl,-rpath,$(BDIR)/lib -Wl,-rpath,$(VWDIR)/lib
 
 %.o : %.cc
 	$(CXX) -c -o $@ $(CXXFLAGS) $^
@@ -12,9 +12,12 @@ LDFLAGS += -L$(BDIR)/lib -lboost_system-mt-1_55 -lboost_thread-mt-1_55 -lboost_f
 %.o : %.cxx
 	$(CXX) -c -o $@ $(CXXFLAGS) -I$(GTEST)/include $^
 
-EXECS = TestPatchMatch TestMoc
+EXECS = TestPatchMatch TestMoc patch_match
 
 all: $(EXECS)
+
+patch_match : PatchMatch.o patch_match.o
+	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
 
 TestPatchMatch : TestPatchMatch.o PatchMatch.o
 	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)

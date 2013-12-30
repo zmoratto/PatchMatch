@@ -3,8 +3,13 @@
 *.zip
 *.o
 
+*.tif
+TestMoc
 TestPatchMatch
 effect*.png
 my*.png
-*.tif
+patch_match
 test
+*.pdf
+*.mp4
+*.log
