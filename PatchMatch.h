@@ -105,7 +105,7 @@ namespace vw {
         size_t improve_cnt = 0;
 #endif
 
-        ImageView<float> lcrop, rcrop;
+        ImageView<float> lcrop, rcrop, weight(m_kernel_size.x(),m_kernel_size.y());
 
         // My hope is that these conditionals collapse during
         // compiling because they are switching based on template
@@ -139,7 +139,7 @@ namespace vw {
             // double result = sum_of_pixel_values(abs(lcrop-rcrop));
 #else
             // This is NCC with adaptive support weights
-            ImageView<float> weight = copy(m_weight);
+            std::copy(m_weight.data(),m_weight.data()+prod(m_kernel_size),weight.data());
             float left_color = lcrop(m_kernel_size.x()/2,m_kernel_size.y()/2),
               right_color = rcrop(m_kernel_size.x()/2,m_kernel_size.y()/2);
             float sum = 0;
