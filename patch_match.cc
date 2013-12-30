@@ -3,6 +3,7 @@
 #include <vw/Core/Debugging.h>
 #include <vw/FileIO/DiskImageView.h>
 #include <vw/FileIO/DiskImageResourceGDAL.h>
+#include <vw/Stereo/DisparityMap.h>
 
 #include <boost/program_options.hpp>
 #include <boost/filesystem/operations.hpp>
