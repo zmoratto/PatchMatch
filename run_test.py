@@ -7,9 +7,9 @@ import os, glob, optparse, re, shutil, subprocess, sys, string, time, math
 def run( cmd, log ):
     before = time.time();
     #time.sleep(0.2)
-    p = subprocess.check_call(cmd)
+    #p = subprocess.check_call(cmd)
     total = round(time.time()-before,2)
-    print("cmd = '%s'" % " ".join(cmd), file=log)
+    print("cmd = '%s'" % " ".join(cmd))
     print("runtime = %s s\n\n" % total, file=log)
 
 if __name__ == '__main__':
@@ -31,15 +31,20 @@ if __name__ == '__main__':
     print("input2 = %s\n" % args[1], file=log)
     print("search range = %s %s %s %s\n" % (opt.hmin,opt.hmax,opt.vmin,opt.vmax), file=log)
 
-    kernel_size_list = [9,15,19,25];
-    search_exp_list = [1,2,4,8,16,32,64,128];
+    kernel_size_list = [15];
+    search_exp_list = [1];
+    #search_exp_list = [0.01,0.1,0.25,0.5,1,2,4,8];
 
     for kernel_size in kernel_size_list:
         for s_exp in search_exp_list:
             hc = (opt.hmax + opt.hmin)/2
             vc = (opt.vmax + opt.vmin)/2
             hw = (opt.hmax - opt.hmin) * math.sqrt(s_exp)/2.0
+            if ( hw < 1 ):
+                hw = 1
             vw = (opt.vmax - opt.vmin) * math.sqrt(s_exp)/2.0
+            if ( vw < 1 ):
+                vw = 1
             lhmin = int(round(hc - hw))
             lhmax = int(round(hc + hw))
             lvmin = int(round(vc - vw))

@@ -3,7 +3,6 @@
 #include <vw/FileIO.h>
 #include <vw/Stereo/DisparityMap.h>
 #include <vw/Stereo/Correlate.h>
-#include <PatchMatch.h>
 
 #include <gtest/gtest.h>
 
@@ -290,7 +289,7 @@ TEST( PatchMatch, Basic ) {
   read_image(left_image,"../SemiGlobalMatching/data/cones/im2.png");
   read_image(right_image,"../SemiGlobalMatching/data/cones/im6.png");
 
-  // This are our disparity guess. The Vector2f represents a window offset
+  // This is our disparity guess. The Vector2f represents a window offset
   ImageView<DispT> lr_disparity(left_image.cols(),left_image.rows()),
     rl_disparity(right_image.cols(),right_image.rows());
   boost::rand48 gen(0);
@@ -380,26 +379,7 @@ TEST( PatchMatch, Basic ) {
   write_image("final_disparity-D.tif", final_disparity );
 }
 
-template <class ImageT>
-void block_write_image( const std::string &filename,
-                        vw::ImageViewBase<ImageT> const& image,
-                        vw::ProgressCallback const& progress_callback = vw::ProgressCallback::dummy_instance() ) {
-  boost::scoped_ptr<vw::DiskImageResourceGDAL> rsrc
-    (new vw::DiskImageResourceGDAL(filename, image.impl().format(), Vector2i(256,256)));
-  vw::block_write_image( *rsrc, image.impl(), progress_callback );
-}
 
-TEST( PatchMatch, PatchMatchView ) {
-  DiskImageView<PixelGray<uint8> >
-    left_image("../SemiGlobalMatching/data/cones/im2.png"),
-    right_image("../SemiGlobalMatching/data/cones/im6.png");
-
-  block_write_image( "final_disparity_pmview-D.tif",
-                     stereo::patch_match( left_image, right_image,
-                                          BBox2i(Vector2i(-64,-1),Vector2i(0,1)),
-                                          Vector2i(15,15) ),
-                     TerminalProgressCallback("test","PatchMatch:") );
-}
 
 int main( int argc, char **argv ) {
   ::testing::InitGoogleTest(&argc, argv);
