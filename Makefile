@@ -1,10 +1,12 @@
 VWDIR=$(HOME)/projects/visionworkbench/build
+ASPDIR=$(HOME)/projects/StereoPipeline/build
 GTEST=$(PWD)/gtest-1.7.0
 BDIR=$(HOME)/packages/base_system
 
-CXXFLAGS += -g -Ofast -DNDEBUG -I$(BDIR)/include -I$(BDIR)/include/boost-1_55 -I$(VWDIR)/include -I$(PWD) -ffast-math -Wall -Wno-unused-local-typedefs #-DVW_ENABLE_BOUNDS_CHECK=1
+CXXFLAGS += -g -Ofast -DNDEBUG -I$(BDIR)/include -I$(BDIR)/include/boost-1_55 -I$(VWDIR)/include -I$(PWD) -I$(ASPDIR)/include -ffast-math -Wall -Wno-unused-local-typedefs -DTRILIBRARY #-DVW_ENABLE_BOUNDS_CHECK=1 
+CFLAGS += -DTRILIBRARY
 
-LDFLAGS += -L$(BDIR)/lib -lboost_system-mt-1_55 -lboost_thread-mt-1_55 -lboost_filesystem-mt-1_55 -lboost_program_options-mt-1_55 -L$(VWDIR)/lib -lvwCore -lvwMath -lvwFileIO -lvwImage -lvwStereo -L$(GTEST)/lib -L$(PWD) -lgtest -lpthread -Wl,-rpath,$(BDIR)/lib -Wl,-rpath,$(VWDIR)/lib
+LDFLAGS += -L$(BDIR)/lib -lboost_system-mt-1_55 -lboost_thread-mt-1_55 -lboost_filesystem-mt-1_55 -lboost_program_options-mt-1_55 -L$(VWDIR)/lib -lvwCore -lvwMath -lvwFileIO -lvwImage -lvwStereo -lvwInterestPoint -L$(ASPDIR)/lib -laspCore -L$(GTEST)/lib -L$(PWD) -lgtest -lpthread -Wl,-rpath,$(BDIR)/lib -Wl,-rpath,$(VWDIR)/lib
 
 %.o : %.cc
 	$(CXX) -c -o $@ $(CXXFLAGS) $^
@@ -12,9 +14,15 @@ LDFLAGS += -L$(BDIR)/lib -lboost_system-mt-1_55 -lboost_thread-mt-1_55 -lboost_f
 %.o : %.cxx
 	$(CXX) -c -o $@ $(CXXFLAGS) -I$(GTEST)/include $^
 
-EXECS = TestPatchMatch TestMoc patch_match TestPatchMatchView TestPatchMatchHeise
+EXECS = TestPatchMatch TestMoc patch_match TestPatchMatchView TestPatchMatchHeise render_disparity_guess tricall
 
 all: $(EXECS)
+
+tricall : tricall.o triangle.o
+	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
+
+render_disparity_guess : render_disparity_guess.o DisparityFromIP.o triangle.o
+	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
 
 patch_match : PatchMatch.o patch_match.o
 	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
@@ -25,7 +33,7 @@ TestPatchMatch : TestPatchMatch.o
 TestPatchMatchView : TestPatchMatchView.o PatchMatch.o
 	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
 
-TestPatchMatchHeise : TestPatchMatchHeise.o PatchMatchSimple.o TVMin.o
+TestPatchMatchHeise : TestPatchMatchHeise.o PatchMatchSimple.o TVMin.o triangle.o DisparityFromIP.o
 	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
 
 TestMoc : TestMoc.o PatchMatch.o

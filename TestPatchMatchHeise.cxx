@@ -11,6 +11,7 @@
 #include <numeric>
 
 #include <PatchMatchSimple.h>
+#include <DisparityFromIP.h>
 #include <TVMin.h>
 
 namespace vw {
@@ -241,31 +242,11 @@ TEST( PatchMatchHeise, Basic ) {
   //BBox2f search_range(Vector2f(-70,-10),Vector2f(105,10)); // exclusive
   //BBox2f search_range(Vector2f(-128,-2), Vector2f(2,2));
   BBox2f search_range_rl( -search_range.max(), -search_range.min() );
-  Vector2i kernel_size(3,3);
-  Vector2f middle = (search_range.min() + search_range.max())/2;
+  Vector2i kernel_size(15,15);
 
   // Filling in the disparity guess
-  fill(rl_disparity, Vector2f());
-  fill(lr_disparity, Vector2f());
-  fill(rl_disparity_smooth, middle);
-  fill(lr_disparity_smooth, -middle);
-  AddDisparityNoise(search_range, search_range,
-                    bounding_box(rl_disparity),
-                    lr_disparity);
-  AddDisparityNoise(search_range_rl, search_range_rl,
-                    bounding_box(lr_disparity),
-                    rl_disparity);
-
-  // Fix LR
-  ImageView<PixelMask<Vector2f> > asp_mask_disparity;
-  read_image(asp_mask_disparity, "arctic/asp_result.tif");
-  for (int j = 0; j < lr_disparity.rows(); j++ ) {
-    for (int i = 0; i < lr_disparity.cols(); i++ ) {
-      if (is_valid(asp_mask_disparity(i,j))) {
-        //lr_disparity(i,j) = asp_mask_disparity(i,j).child();
-      }
-    }
-  }
+  DisparityFromIP("arctic/asp_al-L.crop.8__asp_al-R.crop.8.match", lr_disparity, false);
+  DisparityFromIP("arctic/asp_al-L.crop.8__asp_al-R.crop.8.match", rl_disparity, true);
 
   ImageView<float> lr_cost( lr_disparity.cols(), lr_disparity.rows() ),
     rl_cost( rl_disparity.cols(), rl_disparity.rows() ),
@@ -285,6 +266,8 @@ TEST( PatchMatchHeise, Basic ) {
   ImageView<float> left_expanded( crop(edge_extend(left_image), left_expanded_roi ) ),
     right_expanded( crop(edge_extend(right_image), right_expanded_roi ) );
 
+  write_image("0000_lr_input.tif", lr_disparity);
+  write_image("0000_rl_input.tif", rl_disparity);
 
   for ( int iteration = 0; iteration < 50; iteration++ ) {
     float smooth_scalar = 0.0000001f;
@@ -304,20 +287,27 @@ TEST( PatchMatchHeise, Basic ) {
       evaluate_disparity( right_expanded, left_expanded,
                           right_expanded_roi, left_expanded_roi,
                           kernel_size, rl_disparity_smooth, lambda1 * smooth_scalar, rl_disparity, rl_cost );
+      std::cout << "Starting Summed cost in LR: "
+                << std::accumulate(lr_cost.data(),
+                                   lr_cost.data() + lr_cost.cols() * lr_cost.rows(),
+                                   double(0))
+                << std::endl;
+
     }
 
     // Add noise to find lower cost
-    if (iteration > 0) {
+    {
       lr_disparity_copy = copy(lr_disparity);
       rl_disparity_copy = copy(rl_disparity);
       lr_cost_copy = copy(lr_cost);
       rl_cost_copy = copy(rl_cost);
 
-      Vector2f search_range_size = search_range.size();
+      //      Vector2f search_range_size = search_range.size();
+      Vector2f search_range_size(20,20);
       float scaling_size = 1.0/pow(2.0,iteration);
-      search_range_size *= scaling_size;
+      //search_range_size *= scaling_size;
       Vector2f search_range_size_half = search_range_size / 2.0;
-      search_range_size_half[0] = std::max(3.f, search_range_size_half[0]);
+      search_range_size_half[0] = std::max(0.25f, search_range_size_half[0]);
       search_range_size_half[1] = std::max(0.25f, search_range_size_half[1]);
       std::cout << search_range_size_half << std::endl;
       {
@@ -384,10 +374,10 @@ TEST( PatchMatchHeise, Basic ) {
       Timer timer("\tWrite images", InfoMessage);
       char prefix[5];
       snprintf(prefix, 5, "%04d", iteration);
-      write_image(std::string(prefix) + "_lr_input.tif", lr_disparity);
-      write_image(std::string(prefix) + "_lr_smooth.tif", lr_disparity_smooth);
-      write_image(std::string(prefix) + "_rl_input.tif", rl_disparity);
-      write_image(std::string(prefix) + "_rl_smooth.tif", rl_disparity_smooth);
+      write_image(std::string(prefix) + "_lr_u.tif", lr_disparity);
+      write_image(std::string(prefix) + "_lr_v.tif", lr_disparity_smooth);
+      write_image(std::string(prefix) + "_rl_u.tif", rl_disparity);
+      write_image(std::string(prefix) + "_rl_v.tif", rl_disparity_smooth);
     }
     std::cout << "Summed cost in LR: "
               << std::accumulate(lr_cost.data(),
