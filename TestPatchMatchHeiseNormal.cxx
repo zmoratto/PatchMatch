@@ -22,7 +22,7 @@ namespace vw {
 
 #define DISPARITY_SMOOTHNESS_SIGMA 3.0f
 #define NORMAL_SMOOTHNESS_SIGMA 0.05f
-#define INTENSITY_SIGMA 0.0025f
+#define INTENSITY_SIGMA 0.002f
 
 using namespace vw;
 
@@ -365,7 +365,7 @@ TEST( PatchMatchHeise, Basic ) {
   write_image("0000_rl_input.tif", rl_disparity);
 
   for ( int iteration = 0; iteration < 50; iteration++ ) {
-    float theta = 0.0000001f;
+    float theta = (1. / 50.f) * float(iteration);
     // if (iteration > 0) {
     //   theta = (1.0f - 1.0f / float(iteration))*(1.0f - 1.0f / float(iteration));
     //     //pow(2.0f,float(iteration-1))/10;
@@ -406,8 +406,7 @@ TEST( PatchMatchHeise, Basic ) {
       rl_cost_copy = copy(rl_cost);
 
       Vector2f search_range_size = search_range.size();
-      //Vector2f search_range_size(20,20);
-      float scaling_size = 1.0/pow(2.0,iteration);
+      float scaling_size = 1.0/float(iteration);
       search_range_size *= scaling_size;
       Vector2f search_range_size_half = search_range_size / 2.0;
       search_range_size_half[0] = std::max(0.25f, search_range_size_half[0]);
@@ -487,10 +486,10 @@ TEST( PatchMatchHeise, Basic ) {
     // Solve for smooth disparity
     {
       Timer timer("\tTV Minimization", InfoMessage);
-      imROF(lr_disparity, theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA), 5, lr_disparity_smooth);
-      imROF(rl_disparity, theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA), 5, rl_disparity_smooth);
-      imROF(lr_normal, theta * (1.0/NORMAL_SMOOTHNESS_SIGMA), 5, lr_normal_smooth);
-      imROF(rl_normal, theta * (1.0/NORMAL_SMOOTHNESS_SIGMA), 5, rl_normal_smooth);
+      imROF(lr_disparity, theta * theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA), 5, lr_disparity_smooth);
+      imROF(rl_disparity, theta * theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA), 5, rl_disparity_smooth);
+      imROF(lr_normal, theta * theta * (1.0/NORMAL_SMOOTHNESS_SIGMA), 5, lr_normal_smooth);
+      imROF(rl_normal, theta * theta * (1.0/NORMAL_SMOOTHNESS_SIGMA), 5, rl_normal_smooth);
     }
     {
       Timer timer("\tWrite images", InfoMessage);
