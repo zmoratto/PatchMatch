@@ -22,7 +22,7 @@ namespace vw {
 
 #define DISPARITY_SMOOTHNESS_SIGMA 3.0f
 #define NORMAL_SMOOTHNESS_SIGMA 0.05f
-#define INTENSITY_SIGMA 0.1f
+#define INTENSITY_SIGMA 0.0025f
 
 using namespace vw;
 
@@ -38,13 +38,6 @@ template <class PixelT>
 struct AbsDiffFunc : public vw::ReturnFixedType<PixelT> {
   inline PixelT operator()( PixelT const& a, PixelT const& b ) const {
     return fabs( a - b );
-  }
-};
-
-// Casting function
-struct CastVec2fFunc : public vw::ReturnFixedType<PixelMask<Vector2f> > {
-  inline PixelMask<Vector2f> operator()( Vector4f const& a ) const {
-    return subvector(a,0,2);
   }
 };
 
@@ -78,9 +71,9 @@ float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity, Vector2f
   // calculate cost is a sum so we are going to normalize by kernel size
   result *= (1.0/INTENSITY_SIGMA) * inv_kernel_area;
   // Add the smoothness constraint against disparity values
-  result += theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA) * norm_2_sqr(disparity - disparity_smooth);
+  result += theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA) * norm_2(disparity - disparity_smooth);
   // Add the smoothness constraint against normal values
-  result += theta * (1.0/NORMAL_SMOOTHNESS_SIGMA) * norm_2_sqr(normal - normal_smooth);
+  result += theta * (1.0/NORMAL_SMOOTHNESS_SIGMA) * norm_2(normal - normal_smooth);
 
   return result;
 }
@@ -373,11 +366,11 @@ TEST( PatchMatchHeise, Basic ) {
 
   for ( int iteration = 0; iteration < 50; iteration++ ) {
     float theta = 0.0000001f;
-    if (iteration > 0) {
-      theta = (1.0f - 1.0f / float(iteration))*(1.0f - 1.0f / float(iteration));
-        //pow(2.0f,float(iteration-1))/10;
-    }
-    theta = std::max(0.1f, theta);
+    // if (iteration > 0) {
+    //   theta = (1.0f - 1.0f / float(iteration))*(1.0f - 1.0f / float(iteration));
+    //     //pow(2.0f,float(iteration-1))/10;
+    // }
+    // theta = std::max(0.01f, theta);
     std::cout << "Smooth Scalar: " << theta << std::endl;
 
     {
@@ -405,16 +398,12 @@ TEST( PatchMatchHeise, Basic ) {
 
     // Add noise to find lower cost
     {
-      std::cout << &lr_disparity(0,0) << std::endl;
-      std::cout << &lr_disparity_copy(0,0) << std::endl;
       lr_disparity_copy = copy(lr_disparity);
       rl_disparity_copy = copy(rl_disparity);
       lr_normal_copy = copy(lr_normal);
       rl_normal_copy = copy(rl_normal);
       lr_cost_copy = copy(lr_cost);
       rl_cost_copy = copy(rl_cost);
-      std::cout << &lr_disparity(0,0) << std::endl;
-      std::cout << &lr_disparity_copy(0,0) << std::endl;
 
       Vector2f search_range_size = search_range.size();
       //Vector2f search_range_size(20,20);
@@ -455,14 +444,22 @@ TEST( PatchMatchHeise, Basic ) {
                             rl_normal_smooth,
                             theta, rl_disparity_copy,
                             rl_normal_copy, rl_cost_copy );
+        write_image("guess_lr.tif", lr_disparity_copy);
+        write_image("guess_rl.tif", rl_disparity_copy);
       }
 
       {
         Timer timer("\tKeep Lowest Cost", InfoMessage);
+        std::cout << lr_cost_copy(50,50) << std::endl;
+        std::cout << lr_cost(50,50) << std::endl;
         keep_lowest_cost( lr_disparity, lr_normal, lr_cost,
                           lr_disparity_copy, lr_normal_copy, lr_cost_copy );
         keep_lowest_cost( rl_disparity, rl_normal, rl_cost,
                           rl_disparity_copy, rl_normal_copy, rl_cost_copy );
+        std::cout << lr_cost(50,50) << std::endl;
+        write_image("kept_lr.tif", lr_disparity);
+        write_image("kept_rl.tif", rl_disparity);
+
       }
     }
 
