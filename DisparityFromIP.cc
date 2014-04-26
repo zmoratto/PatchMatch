@@ -33,7 +33,7 @@ void DrawTriangles( struct triangulateio const& input,
                     stereo::SoftwareRenderer& renderer) {
   // Render triangles
   std::vector<float> vertices(6), intensities(3);
-  renderer.Clear(0);
+  //renderer.Clear(0);
   renderer.SetVertexPointer(2, &vertices[0]);
   renderer.SetColorPointer(1, &intensities[0]);
   for (int i = 0; i < input.numberoftriangles; i++ ) {
@@ -48,7 +48,7 @@ void DrawTriangles( struct triangulateio const& input,
 }
 
 void DisparityFromIP(std::string const& match_filename,
-                     vw::ImageView<vw::Vector2f> const& output,
+                     vw::ImageView<vw::Vector2f> & output,
                      bool swap_order) {
   VW_ASSERT(output.cols() != 0 && output.rows() != 0,
             ArgumentErr() << "Output image must be allocated to the size desired for rendering");
@@ -80,8 +80,8 @@ void DisparityFromIP(std::string const& match_filename,
   std::cout << "number of triangles found: " << out.numberoftriangles << std::endl;
 
     // Create output buffer and Rasterizer 
-  ImageView<float> x_disparity(output.cols(), output.rows()),
-    y_disparity(output.cols(), output.rows());
+  ImageView<float> x_disparity = copy(select_channel(output,0)),
+    y_disparity = copy(select_channel(output,1));
   {
     stereo::SoftwareRenderer renderer(output.cols(), output.rows(),
                                       x_disparity.data());

@@ -14,11 +14,14 @@ LDFLAGS += -L$(BDIR)/lib -lboost_system-mt-1_55 -lboost_thread-mt-1_55 -lboost_f
 %.o : %.cxx
 	$(CXX) -c -o $@ $(CXXFLAGS) -I$(GTEST)/include $^
 
-EXECS = TestPatchMatch TestMoc patch_match TestPatchMatchView TestPatchMatchHeise render_disparity_guess tricall
+EXECS = TestPatchMatch TestMoc patch_match TestPatchMatchView TestPatchMatchHeise render_disparity_guess tricall TestPatchMatchHeiseNormal draw_normals
 
 all: $(EXECS)
 
 tricall : tricall.o triangle.o
+	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
+
+draw_normals : draw_normals.o
 	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
 
 render_disparity_guess : render_disparity_guess.o DisparityFromIP.o triangle.o
@@ -34,6 +37,9 @@ TestPatchMatchView : TestPatchMatchView.o PatchMatch.o
 	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
 
 TestPatchMatchHeise : TestPatchMatchHeise.o PatchMatchSimple.o TVMin.o triangle.o DisparityFromIP.o
+	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
+
+TestPatchMatchHeiseNormal : TestPatchMatchHeiseNormal.o PatchMatchSimple.o TVMin.o triangle.o DisparityFromIP.o
 	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
 
 TestMoc : TestMoc.o PatchMatch.o
