@@ -18,7 +18,7 @@ int main( int argc, char **argv ) {
   for ( int j = 0; j < normal_image.rows(); j++ ) {
     for ( int i = 0; i < normal_image.cols(); i++ ) {
       Vector2f& in = normal_image(i,j);
-      output_image(i,j) = PixelRGB<uint8>(PixelHSV<uint8>((255.0/3.14159)*(atan2(in.y(),in.x())+3.14159/2),255,std::min(255.0,500.0*norm_2(in))));
+      output_image(i,j) = PixelRGB<uint8>(PixelHSV<uint8>((255.0/3.14159)*(atan2(in.y(),in.x())+3.14159/2),255,std::min(255.0,255.0*norm_2(in))));
     }
   }
 

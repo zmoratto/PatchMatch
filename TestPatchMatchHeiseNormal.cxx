@@ -54,8 +54,8 @@ float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity, Vector2f
   Matrix2x2f skew(0, -axis.z(), axis.z(), 0);
   Matrix2x2f tensor_prod(axis.x()*axis.x(), axis.x()*axis.y(),
                          axis.x()*axis.y(), axis.y()*axis.y());
-  Matrix2x2f r = normal3.z() * identity_matrix(2) +
-    sin(angle) * skew + (1 - normal3.z()) * tensor_prod;
+  Matrix2x2f r = inverse(normal3.z() * identity_matrix(2) +
+                         sin(angle) * skew + (1 - normal3.z()) * tensor_prod);
   Vector2f t = -r * (a_loc + disparity - Vector2f(b_roi.min()));
 
   float result =
@@ -89,11 +89,12 @@ void write_template( Vector2f const& a_loc, Vector2f const& disparity, Vector2f 
   Matrix2x2f skew(0, -axis.z(), axis.z(), 0);
   Matrix2x2f tensor_prod(axis.x()*axis.x(), axis.x()*axis.y(),
                          axis.x()*axis.y(), axis.y()*axis.y());
-  Matrix2x2f r = normal3.z() * identity_matrix(2) +
-    sin(angle) * skew + (1 - normal3.z()) * tensor_prod;
+  Matrix2x2f r = inverse(normal3.z() * identity_matrix(2) +
+                         sin(angle) * skew + (1 - normal3.z()) * tensor_prod);
   Vector2f t = -r * (a_loc + disparity - Vector2f(b_roi.min()));
 
-  write_image(prefix+"_kernel_a.tif", crop( a, kernel_roi + a_loc - a_roi.min() ));
+  write_image(prefix+"_kernel_a.tif",
+              crop( a, kernel_roi + a_loc - a_roi.min()));
   write_image(prefix+"_kernel_b.tif",
               crop( transform_no_edge(b,
                                       AffineTransform(r, t)), kernel_roi ));
@@ -338,6 +339,12 @@ TEST( PatchMatchHeise, Basic ) {
                     bounding_box(rl_disparity), lr_disparity);
   AddDisparityNoise(search_range_rl, search_range_rl,
                     bounding_box(lr_disparity), rl_disparity);
+  AddDisparityNoise(BBox2f(-.7, -.7, 1.4, 1.4),
+                    BBox2f(-Vector2f(.7,.7),Vector2f(.7,.7)),
+                    bounding_box(rl_disparity), lr_normal);
+  AddDisparityNoise(BBox2f(-.7, -.7, 1.4, 1.4),
+                    BBox2f(-Vector2f(.7,.7),Vector2f(.7,.7)),
+                    bounding_box(lr_disparity), rl_normal);
   DisparityFromIP("arctic/asp_al-L.crop.8__asp_al-R.crop.8.match", lr_disparity, false);
   DisparityFromIP("arctic/asp_al-L.crop.8__asp_al-R.crop.8.match", rl_disparity, true);
   lr_normal_smooth = copy(lr_normal);
@@ -357,6 +364,8 @@ TEST( PatchMatchHeise, Basic ) {
   right_expanded_roi.max() += kernel_size/2;
   left_expanded_roi.expand( BilinearInterpolation::pixel_buffer );
   right_expanded_roi.expand( BilinearInterpolation::pixel_buffer );
+  left_expanded_roi.expand(2);
+  right_expanded_roi.expand(2);
 
   ImageView<float> left_expanded( crop(edge_extend(left_image), left_expanded_roi ) ),
     right_expanded( crop(edge_extend(right_image), right_expanded_roi ) );
@@ -412,8 +421,9 @@ TEST( PatchMatchHeise, Basic ) {
       }
       search_range_size *= scaling_size;
       Vector2f search_range_size_half = search_range_size / 2.0;
-      search_range_size_half[0] = std::max(0.25f, search_range_size_half[0]);
-      search_range_size_half[1] = std::max(0.25f, search_range_size_half[1]);
+      Vector2f normal_search_range = scaling_size * Vector2f(.7,.7);
+      search_range_size_half[0] = std::max(0.2f, search_range_size_half[0]);
+      search_range_size_half[1] = std::max(0.2f, search_range_size_half[1]);
       std::cout << search_range_size_half << std::endl;
       {
         Timer timer("\tAddDisparityNoise", InfoMessage);
@@ -424,10 +434,10 @@ TEST( PatchMatchHeise, Basic ) {
                           BBox2f(-search_range_size_half,search_range_size_half),
                           bounding_box(lr_disparity), rl_disparity_copy);
         AddDisparityNoise(BBox2f(-.7, -.7, 1.4, 1.4),
-                          BBox2f(-Vector2f(.1,.1),Vector2f(.1,.1)),
+                          BBox2f(-normal_search_range,normal_search_range),
                           bounding_box(rl_disparity), lr_normal_copy);
         AddDisparityNoise(BBox2f(-.7, -.7, 1.4, 1.4),
-                          BBox2f(-Vector2f(.1,.1),Vector2f(.1,.1)),
+                          BBox2f(-normal_search_range,normal_search_range),
                           bounding_box(lr_disparity), rl_normal_copy);
 
       }
@@ -514,11 +524,11 @@ TEST( PatchMatchHeise, Basic ) {
       write_image(std::string(prefix) + "_rl_n_u.tif", rl_normal);
       write_image(std::string(prefix) + "_rl_n_v.tif", rl_normal_smooth);
       write_image(std::string(prefix) + "_rl_v.tif", rl_disparity_smooth);
-      write_template( 
-                      Vector2f(50, 50), lr_disparity(50, 50),
-                      lr_normal(50, 50), left_expanded,
-                      right_expanded, left_expanded_roi,
-                      right_expanded_roi, kernel_size, std::string(prefix) );
+      write_template(
+                     Vector2f(50, 50), lr_disparity(50, 50),
+                     lr_normal(50, 50), left_expanded,
+                     right_expanded, left_expanded_roi,
+                     right_expanded_roi, kernel_size, std::string(prefix) );
     }
     std::cout << "Summed cost in LR: "
               << std::accumulate(lr_cost.data(),
@@ -532,6 +542,31 @@ TEST( PatchMatchHeise, Basic ) {
   stereo::cross_corr_consistency_check( final_disparity,
                                         rl_disparity, 1.0, true );
   write_image("final_disp_heise-D.tif", final_disparity );
+}
+
+TEST(PatchMatchHeise, ShowPivot) {
+  Vector2f disparity(20, 20);
+  Vector2f tl(-7,-7), tr(7,-7), bl(-7,7), br(7,7);
+  Vector2f ct(0,0);
+  for ( int n = 0; n < 20; n++ ) {
+    float nf = -.7 + n*1.4/20.0;
+    Vector3f normal3(nf, nf, sqrt(1 - nf*nf - nf*nf));
+    Vector3f axis = cross_prod(Vector3(0,0,1), normal3);
+    float angle = acos(normal3.z());
+    Matrix2x2f skew(0, -axis.z(), axis.z(), 0);
+    Matrix2x2f tensor_prod(axis.x()*axis.x(), axis.x()*axis.y(),
+                           axis.x()*axis.y(), axis.y()*axis.y());
+    Matrix2x2f r = inverse(normal3.z() * identity_matrix(2) +
+                           sin(angle) * skew + (1 - normal3.z()) * tensor_prod);
+    Vector2f t = -r * (disparity);
+    AffineTransform tx(r, t);
+    std::cout << normal3 << std::endl;
+    std::cout << "\t" << ct << " " << tx.reverse(ct) << std::endl;
+    std::cout << "\t" << tl << " " << tx.reverse(tl) << std::endl;
+    std::cout << "\t" << tr << " " << tx.reverse(tr) << std::endl;
+    std::cout << "\t" << bl << " " << tx.reverse(bl) << std::endl;
+    std::cout << "\t" << br << " " << tx.reverse(br) << std::endl;
+  }
 }
 
 int main( int argc, char **argv ) {
