@@ -365,7 +365,7 @@ TEST( PatchMatchHeise, Basic ) {
   write_image("0000_rl_input.tif", rl_disparity);
 
   for ( int iteration = 0; iteration < 50; iteration++ ) {
-    float theta = (1. / 50.f) * float(iteration);
+    float theta = (1. / 50.f) * float(iteration+1);
     // if (iteration > 0) {
     //   theta = (1.0f - 1.0f / float(iteration))*(1.0f - 1.0f / float(iteration));
     //     //pow(2.0f,float(iteration-1))/10;
@@ -388,10 +388,10 @@ TEST( PatchMatchHeise, Basic ) {
                           rl_normal_smooth,
                           theta, rl_disparity,
                           rl_normal, rl_cost );
-      std::cout << "Starting Summed cost in LR: "
+      std::cout << "Starting Avg Cost Per Pixel in LR: "
                 << std::accumulate(lr_cost.data(),
                                    lr_cost.data() + lr_cost.cols() * lr_cost.rows(),
-                                   double(0))
+                                   double(0)) / (lr_cost.cols() * lr_cost.rows())
                 << std::endl;
 
     }
@@ -407,6 +407,9 @@ TEST( PatchMatchHeise, Basic ) {
 
       Vector2f search_range_size = search_range.size();
       float scaling_size = 1.0/float(iteration);
+      if ( iteration == 0 ) {
+        scaling_size = 1.0;
+      }
       search_range_size *= scaling_size;
       Vector2f search_range_size_half = search_range_size / 2.0;
       search_range_size_half[0] = std::max(0.25f, search_range_size_half[0]);
@@ -486,10 +489,18 @@ TEST( PatchMatchHeise, Basic ) {
     // Solve for smooth disparity
     {
       Timer timer("\tTV Minimization", InfoMessage);
-      imROF(lr_disparity, theta * theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA), 5, lr_disparity_smooth);
-      imROF(rl_disparity, theta * theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA), 5, rl_disparity_smooth);
-      imROF(lr_normal, theta * theta * (1.0/NORMAL_SMOOTHNESS_SIGMA), 5, lr_normal_smooth);
-      imROF(rl_normal, theta * theta * (1.0/NORMAL_SMOOTHNESS_SIGMA), 5, rl_normal_smooth);
+      int rof_iterations = 5;
+      if ( iteration == 0 ) {
+        rof_iterations = 20;
+      }
+      imROF(lr_disparity, theta * theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA),
+            rof_iterations, lr_disparity_smooth);
+      imROF(rl_disparity, theta * theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA),
+            rof_iterations, rl_disparity_smooth);
+      imROF(lr_normal, theta * theta * (1.0/NORMAL_SMOOTHNESS_SIGMA),
+            rof_iterations, lr_normal_smooth);
+      imROF(rl_normal, theta * theta * (1.0/NORMAL_SMOOTHNESS_SIGMA),
+            rof_iterations, rl_normal_smooth);
     }
     {
       Timer timer("\tWrite images", InfoMessage);
@@ -512,7 +523,7 @@ TEST( PatchMatchHeise, Basic ) {
     std::cout << "Summed cost in LR: "
               << std::accumulate(lr_cost.data(),
                                  lr_cost.data() + lr_cost.cols() * lr_cost.rows(),
-                                 double(0))
+                                 double(0)) / (lr_cost.cols() * lr_cost.rows())
               << std::endl;
   }
 
