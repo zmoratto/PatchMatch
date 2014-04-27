@@ -22,7 +22,7 @@ namespace vw {
 }
 
 #define DISPARITY_SMOOTHNESS_SIGMA 30.0f
-#define NORMAL_SMOOTHNESS_SIGMA 0.05f
+#define NORMAL_SMOOTHNESS_SIGMA 0.1f
 #define INTENSITY_SIGMA 0.002f
 #define NORMAL_MAX 0.25f
 
@@ -40,6 +40,21 @@ template <class PixelT>
 struct AbsDiffFunc : public vw::ReturnFixedType<PixelT> {
   inline PixelT operator()( PixelT const& a, PixelT const& b ) const {
     return fabs( a - b );
+  }
+};
+
+struct SearchParameters {
+  SearchParameters(int cols, int rows) :
+    affine(cols, rows), disparity(cols, rows),
+    normal(cols, rows) {}
+  ImageView<Matrix2x2f> affine; // Cache, that is calculated from normals
+  ImageView<Vector2f> disparity;
+  ImageView<Vector2f> normal;
+
+  void copy( SearchParameters const& other ) {
+    affine = vw::copy(other.affine);
+    disparity = vw::copy(other.disparity);
+    normal = vw::copy(other.normal);
   }
 };
 
@@ -73,19 +88,19 @@ float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity, Vector2f
   return result;
 }
 
-void calculate_affine( ImageView<Vector2f> const& normal,
-                       ImageView<Matrix2x2f> & affine ) {
-  for ( int j = 0; j < normal.rows(); j++ ) {
-    for ( int i = 0; i < normal.cols(); i++ ) {
-      Vector2f& n = normal(i,j);
+void calculate_affine( SearchParameters& params ) {
+  for ( int j = 0; j < params.normal.rows(); j++ ) {
+    for ( int i = 0; i < params.normal.cols(); i++ ) {
+      Vector2f& n = params.normal(i,j);
       Vector3f normal3(n.x(), n.y(), sqrt(1 - n.x()*n.x() - n.y()*n.y()));
       Vector3f axis = cross_prod(Vector3(0,0,1), normal3);
       float angle = acos(normal3.z());
       Matrix2x2f skew(0, -axis.z(), axis.z(), 0);
       Matrix2x2f tensor_prod(axis.x()*axis.x(), axis.x()*axis.y(),
                              axis.x()*axis.y(), axis.y()*axis.y());
-      affine(i,j) = inverse(normal3.z() * identity_matrix(2) +
-                            sin(angle) * skew + (1 - normal3.z()) * tensor_prod);
+      params.affine(i,j) =
+        inverse(normal3.z() * identity_matrix(2) +
+                sin(angle) * skew + (1 - normal3.z()) * tensor_prod);
     }
   }
 }
@@ -119,36 +134,30 @@ void evaluate_disparity( ImageView<float> const& a, ImageView<float> const& b,
                          ImageView<Vector2f> const& smooth_disparity,
                          ImageView<Vector2f> const& smooth_normal,
                          float theta,
-                         ImageView<Vector2f> const& ab_disparity,
-                         ImageView<Vector2f> const& ab_normal,
-                         ImageView<Matrix2x2f> const& ab_affine,
+                         SearchParameters const& ab,
                          ImageView<float>& ab_cost ) {
-  for ( int j = 0; j < ab_disparity.rows(); j++ ) {
-    for ( int i = 0; i < ab_disparity.cols(); i++ ) {
+  for ( int j = 0; j < ab.disparity.rows(); j++ ) {
+    for ( int i = 0; i < ab.disparity.cols(); i++ ) {
       ab_cost(i,j) =
-        calculate_cost( Vector2f(i,j), ab_disparity(i,j),
-                        ab_normal(i,j), ab_affine(i,j),
+        calculate_cost( Vector2f(i,j), ab.disparity(i,j),
+                        ab.normal(i,j), ab.affine(i,j),
                         theta, smooth_disparity(i, j), smooth_normal(i, j),
                         a, b, a_roi, b_roi, kernel_size );
     }
   }
 }
 
-void keep_lowest_cost( ImageView<Vector2f>& dest_disp,
-                       ImageView<Vector2f>& dest_normal,
-                       ImageView<Matrix2x2f>& dest_affine,
+void keep_lowest_cost( SearchParameters& dest,
                        ImageView<float>& dest_cost,
-                       ImageView<Vector2f> const& src_disp,
-                       ImageView<Vector2f> const& src_normal,
-                       ImageView<Matrix2x2f>& src_affine,
+                       SearchParameters const& src,
                        ImageView<float> const& src_cost ) {
-  for ( int j = 0; j < dest_disp.rows(); j++ ) {
-    for ( int i = 0; i < dest_disp.cols(); i++ ) {
+  for ( int j = 0; j < dest.disparity.rows(); j++ ) {
+    for ( int i = 0; i < dest.disparity.cols(); i++ ) {
       if ( dest_cost(i,j) > src_cost(i,j) ) {
         dest_cost(i,j) = src_cost(i,j);
-        dest_disp(i,j) = src_disp(i,j);
-        dest_normal(i,j) = src_normal(i,j);
-        dest_affine(i,j) = src_affine(i,j);
+        dest.disparity(i,j) = src.disparity(i,j);
+        dest.normal(i,j) = src.normal(i,j);
+        dest.affine(i,j) = src.affine(i,j);
       }
     }
   }
@@ -162,15 +171,10 @@ void evaluate_8_connected( ImageView<float> const& a,
                            ImageView<Vector2f> const& ab_disparity_smooth,
                            ImageView<Vector2f> const& ab_normal_smooth,
                            float theta,
-                           ImageView<Vector2f> const& ba_disparity,
-                           ImageView<Vector2f> const& ba_normal,
-                           ImageView<Vector2f> const& ab_disparity_in,
-                           ImageView<Vector2f> const& ab_normal_in,
-                           ImageView<Matrix2x2f> const& ab_affine_in,
+                           SearchParameters const& ba_in,
+                           SearchParameters const& ab_in,
                            ImageView<float> const& ab_cost_in,
-                           ImageView<Vector2f>& ab_disparity_out,
-                           ImageView<Vector2f>& ab_normal_out,
-                           ImageView<Matrix2x2f> const& ab_affine_out,
+                           SearchParameters& ab_out,
                            ImageView<float>& ab_cost_out ) {
   typedef boost::variate_generator<boost::rand48, boost::random::uniform_01<> > vargen_type;
   static vargen_type random_source(boost::rand48(0), boost::random::uniform_01<>());
@@ -178,87 +182,87 @@ void evaluate_8_connected( ImageView<float> const& a,
   float cost;
   Vector2f d_new, n_new;
   Matrix2x2f affine_new;
-  BBox2i ba_box = bounding_box(ba_disparity);
-  BBox2i ab_box = bounding_box(ab_disparity_in);
-  for ( int j = 0; j < ab_disparity_out.rows(); j++ ) {
-    for ( int i = 0; i < ab_disparity_out.cols(); i++ ) {
+  BBox2i ba_box = bounding_box(ba_in.disparity);
+  BBox2i ab_box = bounding_box(ab_in.disparity);
+  for ( int j = 0; j < ab_out.disparity.rows(); j++ ) {
+    for ( int i = 0; i < ab_out.disparity.cols(); i++ ) {
       Vector2f loc(i,j);
 
       if ( i > 0 ) {
         // Compare left
-        d_new = ab_disparity_in(i-1,j);
-        n_new = ab_normal_in(i-1,j);
-        affine_new = ab_affine_in(i-1,j);
+        d_new = ab_in.disparity(i-1,j);
+        n_new = ab_in.normal(i-1,j);
+        affine_new = ab_in.affine(i-1,j);
         if ( ba_box.contains(d_new + loc)) {
           cost = calculate_cost(loc, d_new, n_new, affine_new,
                                 theta, ab_disparity_smooth(i-1,j), ab_normal_smooth(i-1,j),
                                 a, b, a_roi, b_roi, kernel_size);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
-            ab_normal_out(i,j) = n_new;
-            ab_affine_out(i,j) = affine_new;
+            ab_out.disparity(i,j) = d_new;
+            ab_out.normal(i,j) = n_new;
+            ab_out.affine(i,j) = affine_new;
           }
         }
       }
       if ( j > 0 ) {
         // Compare up
-        d_new = ab_disparity_in(i,j-1);
-        n_new = ab_normal_in(i,j-1);
-        affine_new = ab_affine_in(i,j-1);
+        d_new = ab_in.disparity(i,j-1);
+        n_new = ab_in.normal(i,j-1);
+        affine_new = ab_in.affine(i,j-1);
         if ( ba_box.contains(d_new + loc)) {
           cost = calculate_cost(loc, d_new, n_new, affine_new,
                                 theta, ab_disparity_smooth(i,j-1), ab_normal_smooth(i,j-1),
                                 a, b, a_roi, b_roi, kernel_size);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
-            ab_normal_out(i,j) = n_new;
-            ab_affine_out(i,j) = affine_new;
+            ab_out.disparity(i,j) = d_new;
+            ab_out.normal(i,j) = n_new;
+            ab_out.affine(i,j) = affine_new;
           }
         }
       }
-      if ( i < ab_disparity_in.cols() - 1) {
+      if ( i < ab_in.disparity.cols() - 1) {
         // Compare right
-        d_new = ab_disparity_in(i+1,j);
-        n_new = ab_normal_in(i+1,j);
-        affine_new = ab_affine_in(i+1,j);
+        d_new = ab_in.disparity(i+1,j);
+        n_new = ab_in.normal(i+1,j);
+        affine_new = ab_in.affine(i+1,j);
         if ( ba_box.contains(d_new + loc)) {
           cost = calculate_cost(loc, d_new, n_new, affine_new,
                                 theta, ab_disparity_smooth(i+1,j), ab_normal_smooth(i+1,j),
                                 a, b, a_roi, b_roi, kernel_size);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
-            ab_normal_out(i,j) = n_new;
-            ab_affine_out(i,j) = affine_new;
+            ab_out.disparity(i,j) = d_new;
+            ab_out.normal(i,j) = n_new;
+            ab_out.affine(i,j) = affine_new;
           }
         }
       }
-      if ( j < ab_disparity_in.rows() - 1 ) {
+      if ( j < ab_in.disparity.rows() - 1 ) {
         // Compare lower
-        d_new = ab_disparity_in(i,j+1);
-        n_new = ab_normal_in(i,j+1);
-        affine_new = ab_affine_in(i,j+1);
+        d_new = ab_in.disparity(i,j+1);
+        n_new = ab_in.normal(i,j+1);
+        affine_new = ab_in.affine(i,j+1);
         if ( ba_box.contains(d_new + loc)) {
           cost = calculate_cost(loc, d_new, n_new, affine_new,
                                 theta, ab_disparity_smooth(i,j+1), ab_normal_smooth(i,j+1),
                                 a, b, a_roi, b_roi, kernel_size);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
-            ab_normal_out(i,j) = n_new;
-            ab_affine_out(i,j) = affine_new;
+            ab_out.disparity(i,j) = d_new;
+            ab_out.normal(i,j) = n_new;
+            ab_out.affine(i,j) = affine_new;
           }
         }
       }
-      { // Compare with random pixels that can be 10 pixels away
-        Vector2i offset(20 * random_source() - 10,
-                        20 * random_source() - 10);
+      { // Compare with random pixels that can be 20 pixels away
+        Vector2i offset(40 * random_source() - 20,
+                        40 * random_source() - 20);
         if ( ab_box.contains(loc + offset) ) {
-          d_new = ab_disparity_in(i+offset.x(),j+offset.y());
-          n_new = ab_normal_in(i+offset.x(),j+offset.y());
-          affine_new = ab_affine_in(i+offset.x(),j+offset.y());
+          d_new = ab_in.disparity(i+offset.x(),j+offset.y());
+          n_new = ab_in.normal(i+offset.x(),j+offset.y());
+          affine_new = ab_in.affine(i+offset.x(),j+offset.y());
           if ( ba_box.contains(d_new + loc)) {
             cost = calculate_cost(loc, d_new, n_new, affine_new, theta,
                                   ab_disparity_smooth(i+offset.x(),j+offset.y()),
@@ -266,19 +270,19 @@ void evaluate_8_connected( ImageView<float> const& a,
                                   a, b, a_roi, b_roi, kernel_size);
             if (cost < ab_cost_in(i,j)) {
               ab_cost_out(i,j) = cost;
-              ab_disparity_out(i,j) = d_new;
-              ab_normal_out(i,j) = n_new;
-              ab_affine_out(i,j) = affine_new;
+              ab_out.disparity(i,j) = d_new;
+              ab_out.normal(i,j) = n_new;
+              ab_out.affine(i,j) = affine_new;
             }
           }
         }
       }
       {
         // Compare LR alternative
-        Vector2f d = ab_disparity_in(i,j);
-        d_new = -ba_disparity(i+d[0], j+d[1]);
+        Vector2f d = ab_in.disparity(i,j);
+        d_new = -ba_in.disparity(i+d[0], j+d[1]);
         if ( ba_box.contains(d_new + loc)) {
-          n_new = ba_normal(i+d[0], j+d[1]);
+          n_new = ba_in.normal(i+d[0], j+d[1]);
 
           Vector3f normal3(n_new.x(), n_new.y(),
                            sqrt(1 - n_new.x()*n_new.x() - n_new.y()*n_new.y()));
@@ -297,9 +301,9 @@ void evaluate_8_connected( ImageView<float> const& a,
                                 a, b, a_roi, b_roi, kernel_size);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
-            ab_normal_out(i,j) = n_new;
-            ab_affine_out(i,j) = affine_new;
+            ab_out.disparity(i,j) = d_new;
+            ab_out.normal(i,j) = n_new;
+            ab_out.affine(i,j) = affine_new;
           }
         }
       }
@@ -318,16 +322,13 @@ TEST( PatchMatchHeise, Basic ) {
     left_image = filter.filter(pixel_cast<float>(left_image_g)),
     right_image = filter.filter(pixel_cast<float>(right_image_g));
 
-  ImageView<Vector2f> lr_disparity(left_image.cols(),left_image.rows()),
-    rl_disparity(right_image.cols(),right_image.rows()),
-    lr_disparity_copy(left_image.cols(), left_image.rows()),
-    rl_disparity_copy(right_image.cols(), right_image.rows()),
+  SearchParameters lr(left_image.cols(), left_image.rows()),
+    rl(right_image.cols(), right_image.rows()),
+    lr_copy(left_image.cols(), left_image.rows()),
+    rl_copy(right_image.cols(), right_image.rows());
+  ImageView<Vector2f>
     lr_disparity_smooth(left_image.cols(), left_image.rows()),
     rl_disparity_smooth(right_image.cols(), right_image.rows()),
-    lr_normal(left_image.cols(), left_image.rows()),
-    rl_normal(right_image.cols(), right_image.rows()),
-    lr_normal_copy(left_image.cols(), left_image.rows()),
-    rl_normal_copy(right_image.cols(), right_image.rows()),
     lr_normal_smooth(left_image.cols(), left_image.rows()),
     rl_normal_smooth(right_image.cols(), right_image.rows());
   // BBox2f search_range(Vector2f(-70,-25),Vector2f(105,46)); // exclusive
@@ -338,48 +339,44 @@ TEST( PatchMatchHeise, Basic ) {
 
   // Filling in the disparity guess
   AddDisparityNoise(search_range, search_range,
-                    bounding_box(rl_disparity), lr_disparity);
+                    bounding_box(rl.disparity), lr.disparity);
   AddDisparityNoise(search_range_rl, search_range_rl,
-                    bounding_box(lr_disparity), rl_disparity);
+                    bounding_box(lr.disparity), rl.disparity);
   AddDisparityNoise(search_range, search_range,
-                    bounding_box(rl_disparity), lr_disparity_smooth);
+                    bounding_box(rl.disparity), lr_disparity_smooth);
   AddDisparityNoise(search_range_rl, search_range_rl,
-                    bounding_box(lr_disparity), rl_disparity_smooth);
+                    bounding_box(lr.disparity), rl_disparity_smooth);
   AddDisparityNoise(BBox2f(-NORMAL_MAX, -NORMAL_MAX, 2*NORMAL_MAX, 2*NORMAL_MAX),
                     BBox2f(-Vector2f(NORMAL_MAX,NORMAL_MAX),
                            Vector2f(NORMAL_MAX,NORMAL_MAX)),
-                    bounding_box(rl_disparity), lr_normal);
+                    bounding_box(rl.disparity), lr.normal);
   AddDisparityNoise(BBox2f(-NORMAL_MAX, -NORMAL_MAX, 2*NORMAL_MAX, 2*NORMAL_MAX),
                     BBox2f(-Vector2f(NORMAL_MAX, NORMAL_MAX),
                            Vector2f(NORMAL_MAX, NORMAL_MAX)),
-                    bounding_box(lr_disparity), rl_normal);
+                    bounding_box(lr.disparity), rl.normal);
   DisparityFromIP("arctic/asp_al-L.crop.8__asp_al-R.crop.8.match", lr_disparity_smooth, false);
   DisparityFromIP("arctic/asp_al-L.crop.8__asp_al-R.crop.8.match", rl_disparity_smooth, true);
-  for (int j = 0; j < lr_disparity.rows(); j += 2) {
-    for (int i = 0; i < lr_disparity.cols(); i += 2) {
-      lr_disparity(i,j) = lr_disparity_smooth(i,j);
+  for (int j = 0; j < lr.disparity.rows(); j += 2) {
+    for (int i = 0; i < lr.disparity.cols(); i += 2) {
+      lr.disparity(i,j) = lr_disparity_smooth(i,j);
     }
   }
-  for (int j = 0; j < rl_disparity.rows(); j += 2) {
-    for (int i = 0; i < rl_disparity.cols(); i += 2) {
-      rl_disparity(i,j) = rl_disparity_smooth(i,j);
+  for (int j = 0; j < rl.disparity.rows(); j += 2) {
+    for (int i = 0; i < rl.disparity.cols(); i += 2) {
+      rl.disparity(i,j) = rl_disparity_smooth(i,j);
     }
   }
 
-  lr_normal_smooth = copy(lr_normal);
-  rl_normal_smooth = copy(rl_normal);
+  lr_normal_smooth = copy(lr.normal);
+  rl_normal_smooth = copy(rl.normal);
 
-  ImageView<Matrix2x2f> cached_lr_affine(lr_disparity.cols(), lr_disparity.rows()),
-    cached_rl_affine(rl_disparity.cols(), rl_disparity.rows()),
-    cached_lr_affine_copy(lr_disparity.cols(), lr_disparity.rows()),
-    cached_rl_affine_copy(rl_disparity.cols(), rl_disparity.rows());;
-  calculate_affine(lr_normal, cached_lr_affine);
-  calculate_affine(rl_normal, cached_rl_affine);
+  calculate_affine(lr);
+  calculate_affine(rl);
 
-  ImageView<float> lr_cost( lr_disparity.cols(), lr_disparity.rows() ),
-    rl_cost( rl_disparity.cols(), rl_disparity.rows() ),
-    lr_cost_copy(lr_disparity.cols(), lr_disparity.rows()),
-    rl_cost_copy(rl_disparity.cols(), rl_disparity.rows());
+  ImageView<float> lr_cost( lr.disparity.cols(), lr.disparity.rows() ),
+    rl_cost( rl.disparity.cols(), rl.disparity.rows() ),
+    lr_cost_copy(lr.disparity.cols(), lr.disparity.rows()),
+    rl_cost_copy(rl.disparity.cols(), rl.disparity.rows());
   BBox2i left_expanded_roi = bounding_box( left_image );
   BBox2i right_expanded_roi = bounding_box( right_image );
   left_expanded_roi.min() -= kernel_size/2;      // Expand by kernel size
@@ -388,14 +385,12 @@ TEST( PatchMatchHeise, Basic ) {
   right_expanded_roi.max() += kernel_size/2;
   left_expanded_roi.expand( BilinearInterpolation::pixel_buffer );
   right_expanded_roi.expand( BilinearInterpolation::pixel_buffer );
-  left_expanded_roi.expand(2);
-  right_expanded_roi.expand(2);
 
   ImageView<float> left_expanded( crop(edge_extend(left_image), left_expanded_roi ) ),
     right_expanded( crop(edge_extend(right_image), right_expanded_roi ) );
 
-  write_image("0000_lr_input.tif", lr_disparity);
-  write_image("0000_rl_input.tif", rl_disparity);
+  write_image("0000_lr_input.tif", lr.disparity);
+  write_image("0000_rl_input.tif", rl.disparity);
   write_image("0000_lr_input_sm.tif", lr_disparity_smooth);
   write_image("0000_rl_input_sm.tif", rl_disparity_smooth);
 
@@ -416,14 +411,12 @@ TEST( PatchMatchHeise, Basic ) {
                           left_expanded_roi, right_expanded_roi,
                           kernel_size, lr_disparity_smooth,
                           lr_normal_smooth,
-                          theta, lr_disparity,
-                          lr_normal, cached_lr_affine, lr_cost );
+                          theta, lr, lr_cost);
       evaluate_disparity( right_expanded, left_expanded,
                           right_expanded_roi, left_expanded_roi,
                           kernel_size, rl_disparity_smooth,
                           rl_normal_smooth,
-                          theta, rl_disparity,
-                          rl_normal, cached_rl_affine, rl_cost );
+                          theta, rl, rl_cost);
       std::cout << "Starting Avg Cost Per Pixel in LR: "
                 << std::accumulate(lr_cost.data(),
                                    lr_cost.data() + lr_cost.cols() * lr_cost.rows(),
@@ -434,12 +427,8 @@ TEST( PatchMatchHeise, Basic ) {
 
     // Add noise to find lower cost
     {
-      lr_disparity_copy = copy(lr_disparity);
-      rl_disparity_copy = copy(rl_disparity);
-      lr_normal_copy = copy(lr_normal);
-      rl_normal_copy = copy(rl_normal);
-      lr_cost_copy = copy(lr_cost);
-      rl_cost_copy = copy(rl_cost);
+      lr_copy.copy(lr);
+      rl_copy.copy(rl);
 
       Vector2f search_range_size = search_range.size();
       float scaling_size = 1.0/pow(2,iteration);
@@ -453,18 +442,18 @@ TEST( PatchMatchHeise, Basic ) {
         Timer timer("\tAddDisparityNoise", InfoMessage);
         AddDisparityNoise(search_range,
                           BBox2f(-search_range_size_half,search_range_size_half),
-                          bounding_box(rl_disparity), lr_disparity_copy);
+                          bounding_box(rl.disparity), lr_copy.disparity);
         AddDisparityNoise(search_range_rl,
                           BBox2f(-search_range_size_half,search_range_size_half),
-                          bounding_box(lr_disparity), rl_disparity_copy);
+                          bounding_box(lr.disparity), rl_copy.disparity);
         AddDisparityNoise(BBox2f(-NORMAL_MAX, -NORMAL_MAX, 2*NORMAL_MAX, 2*NORMAL_MAX),
                           BBox2f(-normal_search_range,normal_search_range),
-                          bounding_box(rl_disparity), lr_normal_copy);
+                          bounding_box(rl.disparity), lr_copy.normal);
         AddDisparityNoise(BBox2f(-NORMAL_MAX, -NORMAL_MAX, 2*NORMAL_MAX, 2*NORMAL_MAX),
                           BBox2f(-normal_search_range,normal_search_range),
-                          bounding_box(lr_disparity), rl_normal_copy);
-        calculate_affine(lr_normal_copy, cached_lr_affine_copy);
-        calculate_affine(rl_normal_copy, cached_rl_affine_copy);
+                          bounding_box(lr.disparity), rl_copy.normal);
+        calculate_affine(lr_copy);
+        calculate_affine(rl_copy);
       }
 
       {
@@ -473,32 +462,22 @@ TEST( PatchMatchHeise, Basic ) {
                             left_expanded_roi, right_expanded_roi,
                             kernel_size, lr_disparity_smooth,
                             lr_normal_smooth,
-                            theta, lr_disparity_copy,
-                            lr_normal_copy, cached_lr_affine_copy, lr_cost_copy );
+                            theta, lr_copy, lr_cost_copy );
         evaluate_disparity( right_expanded, left_expanded,
                             right_expanded_roi, left_expanded_roi,
                             kernel_size, rl_disparity_smooth,
                             rl_normal_smooth,
-                            theta, rl_disparity_copy,
-                            rl_normal_copy, cached_rl_affine_copy, rl_cost_copy );
-        write_image("guess_lr.tif", lr_disparity_copy);
-        write_image("guess_rl.tif", rl_disparity_copy);
+                            theta, rl_copy, rl_cost_copy );
+        write_image("guess_lr.tif", lr_copy.disparity);
+        write_image("guess_rl.tif", rl_copy.disparity);
       }
 
       {
         Timer timer("\tKeep Lowest Cost", InfoMessage);
-        std::cout << "Pr" << lr_cost_copy(450,450) << std::endl;
-        std::cout << "Og" << lr_cost(450,450) << std::endl;
-        keep_lowest_cost( lr_disparity, lr_normal, cached_lr_affine, lr_cost,
-                          lr_disparity_copy, lr_normal_copy,
-                          cached_lr_affine_copy, lr_cost_copy );
-        keep_lowest_cost( rl_disparity, rl_normal, cached_rl_affine, rl_cost,
-                          rl_disparity_copy, rl_normal_copy,
-                          cached_rl_affine_copy, rl_cost_copy );
-        std::cout << lr_cost(450,450) << std::endl;
-        write_image("kept_lr.tif", lr_disparity);
-        write_image("kept_rl.tif", rl_disparity);
-
+        keep_lowest_cost( lr, lr_cost,
+                          lr_copy, lr_cost_copy );
+        keep_lowest_cost( rl, rl_cost,
+                          rl_copy, rl_cost_copy );
       }
     }
 
@@ -509,51 +488,47 @@ TEST( PatchMatchHeise, Basic ) {
                            left_expanded_roi, right_expanded_roi,
                            kernel_size, lr_disparity_smooth,
                            lr_normal_smooth,
-                           theta,
-                           rl_disparity, rl_normal,
-                           lr_disparity, lr_normal, cached_lr_affine, lr_cost,
-                           lr_disparity, lr_normal, cached_lr_affine, lr_cost);
+                           theta, rl, lr, lr_cost,
+                           lr, lr_cost);
       evaluate_8_connected(right_expanded, left_expanded,
                            right_expanded_roi, left_expanded_roi,
                            kernel_size, rl_disparity_smooth,
                            rl_normal_smooth,
-                           theta,
-                           lr_disparity, lr_normal,
-                           rl_disparity, rl_normal, cached_rl_affine, rl_cost,
-                           rl_disparity, rl_normal, cached_rl_affine, rl_cost);
+                           theta, lr, rl, rl_cost,
+                           rl, rl_cost);
     }
 
     // Solve for smooth disparity
     {
       Timer timer("\tTV Minimization", InfoMessage);
-      int rof_iterations = 500;
+      int rof_iterations = 100;
       if ( iteration == 0 ) {
-        rof_iterations = 1000;
+        rof_iterations = 500;
       }
-      imROF(lr_disparity, theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA),
+      imROF(lr.disparity, theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA),
             rof_iterations, lr_disparity_smooth);
-      imROF(rl_disparity, theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA),
+      imROF(rl.disparity, theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA),
             rof_iterations, rl_disparity_smooth);
-      imROF(lr_normal, theta * (1.0/NORMAL_SMOOTHNESS_SIGMA),
+      imROF(lr.normal, theta * (1.0/NORMAL_SMOOTHNESS_SIGMA),
             rof_iterations, lr_normal_smooth);
-      imROF(rl_normal, theta * (1.0/NORMAL_SMOOTHNESS_SIGMA),
+      imROF(rl.normal, theta * (1.0/NORMAL_SMOOTHNESS_SIGMA),
             rof_iterations, rl_normal_smooth);
     }
     {
       Timer timer("\tWrite images", InfoMessage);
       char prefix[5];
       snprintf(prefix, 5, "%04d", iteration);
-      write_image(std::string(prefix) + "_lr_u.tif", lr_disparity);
-      write_image(std::string(prefix) + "_lr_n_u.tif", lr_normal);
+      write_image(std::string(prefix) + "_lr_u.tif", lr.disparity);
+      write_image(std::string(prefix) + "_lr_n_u.tif", lr.normal);
       write_image(std::string(prefix) + "_lr_n_v.tif", lr_normal_smooth);
       write_image(std::string(prefix) + "_lr_v.tif", lr_disparity_smooth);
-      write_image(std::string(prefix) + "_rl_u.tif", rl_disparity);
-      write_image(std::string(prefix) + "_rl_n_u.tif", rl_normal);
+      write_image(std::string(prefix) + "_rl_u.tif", rl.disparity);
+      write_image(std::string(prefix) + "_rl_n_u.tif", rl.normal);
       write_image(std::string(prefix) + "_rl_n_v.tif", rl_normal_smooth);
       write_image(std::string(prefix) + "_rl_v.tif", rl_disparity_smooth);
       write_template(
-                     Vector2f(450, 450), lr_disparity(450, 450),
-                     lr_normal(450, 450), left_expanded,
+                     Vector2f(450, 450), lr.disparity(450, 450),
+                     lr.normal(450, 450), left_expanded,
                      right_expanded, left_expanded_roi,
                      right_expanded_roi, kernel_size, std::string(prefix) );
     }
@@ -565,9 +540,9 @@ TEST( PatchMatchHeise, Basic ) {
   }
 
   // Write out the final trusted disparity
-  ImageView<PixelMask<Vector2f> > final_disparity = lr_disparity;
+  ImageView<PixelMask<Vector2f> > final_disparity = lr.disparity;
   stereo::cross_corr_consistency_check( final_disparity,
-                                        rl_disparity, 1.0, true );
+                                        rl.disparity, 1.0, true );
   write_image("final_disp_heise-D.tif", final_disparity );
 }
 
