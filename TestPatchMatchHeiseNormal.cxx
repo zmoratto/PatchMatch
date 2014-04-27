@@ -463,7 +463,6 @@ TEST( PatchMatchHeise, Basic ) {
 
       Vector2f search_range_size = search_range.size();
       float scaling_size = 1.0/pow(2,iteration);
-      scaling_size = 1;
       search_range_size *= scaling_size;
       Vector2f search_range_size_half = search_range_size / 2.0;
       Vector2f normal_search_range = scaling_size * Vector2f(.7,.7);
