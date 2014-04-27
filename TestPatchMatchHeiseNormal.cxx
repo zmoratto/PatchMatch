@@ -21,8 +21,8 @@ namespace vw {
   template<> struct PixelFormatID<Vector4f> { static const PixelFormatEnum value = VW_PIXEL_GENERIC_4_CHANNEL; };
 }
 
-#define DISPARITY_SMOOTHNESS_SIGMA 20.0f
-#define NORMAL_SMOOTHNESS_SIGMA 0.1f
+#define DISPARITY_SMOOTHNESS_SIGMA 30.0f
+#define NORMAL_SMOOTHNESS_SIGMA 0.05f
 #define INTENSITY_SIGMA 0.002f
 
 using namespace vw;
@@ -162,9 +162,13 @@ void evaluate_8_connected( ImageView<float> const& a,
                            ImageView<Vector2f>& ab_disparity_out,
                            ImageView<Vector2f>& ab_normal_out,
                            ImageView<float>& ab_cost_out ) {
+  typedef boost::variate_generator<boost::rand48, boost::random::uniform_01<> > vargen_type;
+  static vargen_type random_source(boost::rand48(0), boost::random::uniform_01<>());
+
   float cost;
   Vector2f d_new, n_new;
   BBox2i ba_box = bounding_box(ba_disparity);
+  BBox2i ab_box = bounding_box(ab_disparity_in);
   for ( int j = 0; j < ab_disparity_out.rows(); j++ ) {
     for ( int i = 0; i < ab_disparity_out.cols(); i++ ) {
       Vector2f loc(i,j);
@@ -199,21 +203,21 @@ void evaluate_8_connected( ImageView<float> const& a,
           }
         }
       }
-      if ( i > 0 && j > 0 ) {
-        // Compare upper left
-        d_new = ab_disparity_in(i-1,j-1);
-        n_new = ab_normal_in(i-1,j-1);
-        if ( ba_box.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, n_new,
-                                theta, ab_disparity_smooth(i-1,j-1), ab_normal_smooth(i-1,j-1),
-                                a, b, a_roi, b_roi, kernel_size);
-          if (cost < ab_cost_in(i,j)) {
-            ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
-            ab_normal_out(i,j) = n_new;
-          }
-        }
-      }
+      // if ( i > 0 && j > 0 ) {
+      //   // Compare upper left
+      //   d_new = ab_disparity_in(i-1,j-1);
+      //   n_new = ab_normal_in(i-1,j-1);
+      //   if ( ba_box.contains(d_new + loc)) {
+      //     cost = calculate_cost(loc, d_new, n_new,
+      //                           theta, ab_disparity_smooth(i-1,j-1), ab_normal_smooth(i-1,j-1),
+      //                           a, b, a_roi, b_roi, kernel_size);
+      //     if (cost < ab_cost_in(i,j)) {
+      //       ab_cost_out(i,j) = cost;
+      //       ab_disparity_out(i,j) = d_new;
+      //       ab_normal_out(i,j) = n_new;
+      //     }
+      //   }
+      // }
       if ( i < ab_disparity_in.cols() - 1) {
         // Compare right
         d_new = ab_disparity_in(i+1,j);
@@ -229,37 +233,36 @@ void evaluate_8_connected( ImageView<float> const& a,
           }
         }
       }
-      if ( i < ab_disparity_in.cols() - 1 && j > 0 ) {
-        // Compare upper right
-        d_new = ab_disparity_in(i+1,j-1);
-        n_new = ab_normal_in(i+1,j-1);
-        if ( ba_box.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, n_new,
-                                theta, ab_disparity_smooth(i+1,j-1), ab_normal_smooth(i+1,j-1),
-                                a, b, a_roi, b_roi, kernel_size);
-          if (cost < ab_cost_in(i,j)) {
-            ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
-            ab_normal_out(i,j) = n_new;
-          }
-        }
-      }
-      if ( i < ab_disparity_in.cols() - 1 && j < ab_disparity_in.rows() - 1 ) {
-        // Compare lower right
-        d_new = ab_disparity_in(i+1,j+1);
-        n_new = ab_normal_in(i+1,j+1);
-        if ( ba_box.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, n_new,
-                                theta, ab_disparity_smooth(i+1,j+1), ab_normal_smooth(i+1,j+1),
-                                a, b, a_roi, b_roi, kernel_size);
-          if (cost < ab_cost_in(i,j)) {
-            ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
-            ab_normal_out(i,j) = n_new;
-          }
-        }
-
-      }
+      // if ( i < ab_disparity_in.cols() - 1 && j > 0 ) {
+      //   // Compare upper right
+      //   d_new = ab_disparity_in(i+1,j-1);
+      //   n_new = ab_normal_in(i+1,j-1);
+      //   if ( ba_box.contains(d_new + loc)) {
+      //     cost = calculate_cost(loc, d_new, n_new,
+      //                           theta, ab_disparity_smooth(i+1,j-1), ab_normal_smooth(i+1,j-1),
+      //                           a, b, a_roi, b_roi, kernel_size);
+      //     if (cost < ab_cost_in(i,j)) {
+      //       ab_cost_out(i,j) = cost;
+      //       ab_disparity_out(i,j) = d_new;
+      //       ab_normal_out(i,j) = n_new;
+      //     }
+      //   }
+      // }
+      // if ( i < ab_disparity_in.cols() - 1 && j < ab_disparity_in.rows() - 1 ) {
+      //   // Compare lower right
+      //   d_new = ab_disparity_in(i+1,j+1);
+      //   n_new = ab_normal_in(i+1,j+1);
+      //   if ( ba_box.contains(d_new + loc)) {
+      //     cost = calculate_cost(loc, d_new, n_new,
+      //                           theta, ab_disparity_smooth(i+1,j+1), ab_normal_smooth(i+1,j+1),
+      //                           a, b, a_roi, b_roi, kernel_size);
+      //     if (cost < ab_cost_in(i,j)) {
+      //       ab_cost_out(i,j) = cost;
+      //       ab_disparity_out(i,j) = d_new;
+      //       ab_normal_out(i,j) = n_new;
+      //     }
+      //   }
+      // }
       if ( j < ab_disparity_in.rows() - 1 ) {
         // Compare lower
         d_new = ab_disparity_in(i,j+1);
@@ -275,21 +278,40 @@ void evaluate_8_connected( ImageView<float> const& a,
           }
         }
       }
-      if ( i > 0 && j < ab_disparity_in.rows() - 1 ) {
-        // Compare lower left
-        d_new = ab_disparity_in(i-1,j+1);
-        n_new = ab_normal_in(i-1,j+1);
-        if ( ba_box.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, n_new,
-                                theta, ab_disparity_smooth(i-1,j+1), ab_normal_smooth(i-1,j+1),
-                                a, b, a_roi, b_roi, kernel_size);
-          if (cost < ab_cost_in(i,j)) {
-            ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
-            ab_normal_out(i,j) = n_new;
+      { // Compare with random pixels that can be 10 pixels away
+        Vector2i offset(100 * random_source() - 50,
+                        100 * random_source() - 50);
+        if ( ab_box.contains(loc + offset) ) {
+          d_new = ab_disparity_in(i+offset.x(),j+offset.y());
+          n_new = ab_normal_in(i+offset.x(),j+offset.y());
+          if ( ba_box.contains(d_new + loc)) {
+            cost = calculate_cost(loc, d_new, n_new, theta,
+                                  ab_disparity_smooth(i+offset.x(),j+offset.y()),
+                                  ab_normal_smooth(i+offset.x(),j+offset.y()),
+                                  a, b, a_roi, b_roi, kernel_size);
+            if (cost < ab_cost_in(i,j)) {
+              ab_cost_out(i,j) = cost;
+              ab_disparity_out(i,j) = d_new;
+              ab_normal_out(i,j) = n_new;
+            }
           }
         }
       }
+      // if ( i > 0 && j < ab_disparity_in.rows() - 1 ) {
+      //   // Compare lower left
+      //   d_new = ab_disparity_in(i-1,j+1);
+      //   n_new = ab_normal_in(i-1,j+1);
+      //   if ( ba_box.contains(d_new + loc)) {
+      //     cost = calculate_cost(loc, d_new, n_new,
+      //                           theta, ab_disparity_smooth(i-1,j+1), ab_normal_smooth(i-1,j+1),
+      //                           a, b, a_roi, b_roi, kernel_size);
+      //     if (cost < ab_cost_in(i,j)) {
+      //       ab_cost_out(i,j) = cost;
+      //       ab_disparity_out(i,j) = d_new;
+      //       ab_normal_out(i,j) = n_new;
+      //     }
+      //   }
+      // }
       {
         // Compare LR alternative
         Vector2f d = ab_disparity_in(i,j);
@@ -397,8 +419,9 @@ TEST( PatchMatchHeise, Basic ) {
   write_image("0000_lr_input_sm.tif", lr_disparity_smooth);
   write_image("0000_rl_input_sm.tif", rl_disparity_smooth);
 
-  for ( int iteration = 0; iteration < 6; iteration++ ) {
-    float theta = (1. / 5.f) * float(iteration+1);
+  for ( int iteration = 0; iteration < 11; iteration++ ) {
+    float theta = (1. / 10.f) * float(iteration+1);
+    //float theta = 1.f/10.f;
     // if (iteration > 0) {
     //   theta = (1.0f - 1.0f / float(iteration))*(1.0f - 1.0f / float(iteration));
     //     //pow(2.0f,float(iteration-1))/10;
@@ -440,6 +463,7 @@ TEST( PatchMatchHeise, Basic ) {
 
       Vector2f search_range_size = search_range.size();
       float scaling_size = 1.0/pow(2,iteration);
+      scaling_size = 1;
       search_range_size *= scaling_size;
       Vector2f search_range_size_half = search_range_size / 2.0;
       Vector2f normal_search_range = scaling_size * Vector2f(.7,.7);
@@ -519,17 +543,17 @@ TEST( PatchMatchHeise, Basic ) {
     // Solve for smooth disparity
     {
       Timer timer("\tTV Minimization", InfoMessage);
-      int rof_iterations = 15;
+      int rof_iterations = 500;
       if ( iteration == 0 ) {
-        rof_iterations = 30;
+        rof_iterations = 1000;
       }
-      imROF(lr_disparity, theta * theta * theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA),
+      imROF(lr_disparity, theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA),
             rof_iterations, lr_disparity_smooth);
-      imROF(rl_disparity, theta * theta * theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA),
+      imROF(rl_disparity, theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA),
             rof_iterations, rl_disparity_smooth);
-      imROF(lr_normal, theta * theta * theta * (1.0/NORMAL_SMOOTHNESS_SIGMA),
+      imROF(lr_normal, theta * (1.0/NORMAL_SMOOTHNESS_SIGMA),
             rof_iterations, lr_normal_smooth);
-      imROF(rl_normal, theta * theta * theta * (1.0/NORMAL_SMOOTHNESS_SIGMA),
+      imROF(rl_normal, theta * (1.0/NORMAL_SMOOTHNESS_SIGMA),
             rof_iterations, rl_normal_smooth);
     }
     {
