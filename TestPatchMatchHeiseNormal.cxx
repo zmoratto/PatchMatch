@@ -48,35 +48,41 @@ struct SearchParameters {
     affine(cols, rows), disparity(cols, rows),
     normal(cols, rows) {}
   ImageView<Matrix2x2f> affine; // Cache, that is calculated from normals
-  ImageView<Vector2f> disparity;
-  ImageView<Vector2f> normal;
+  ImageView<Vector2f> disparity; // Pixel offset
+  ImageView<Vector2f> normal; // nx and ny components of a unit vector
+  ImageView<Vector2f> scale_rotate; // percent larger or less,
+                                    // radians. I'm going to keep this
+                                    // between -.5 and .5. Meaning The
+                                    // scale can change 50% and the
+                                    // rotate can change 30 degrees
+                                    // max.
 
   void copy( SearchParameters const& other ) {
     affine = vw::copy(other.affine);
     disparity = vw::copy(other.disparity);
     normal = vw::copy(other.normal);
+    scale_rotate = vw::copy(other.scale_rotate);
   }
 };
 
 // Simple square kernels
-float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity, Vector2f const& normal,
+float calculate_cost( Vector2i const& a_idx, // a_loc - a_roi.min
+                      Vector2i const& ba_tf, // a_roi.min - b_roi.min
+                      Vector2f const& disparity,
+                      Vector2f const& normal,
                       Matrix2x2f const& affine,
                       double theta, Vector2f const& disparity_smooth, Vector2f const& normal_smooth,
                       ImageView<float> const& a, ImageView<float> const& b,
-                      BBox2i const& a_roi, BBox2i const& b_roi, Vector2i const& kernel_size ) {
-  BBox2i kernel_roi( -kernel_size/2, kernel_size/2 + Vector2i(1,1) );
-
-  Vector2f t = -affine * (a_loc + disparity - Vector2f(b_roi.min()));
+                      BBox2i const& kernel_roi, double inv_kernel_area ) {
+  Vector2f t = -affine * (Vector2f(a_idx + ba_tf) + disparity);
 
   float result =
     sum_of_pixel_values
     (per_pixel_filter
-     (crop( a, kernel_roi + a_loc - a_roi.min() ),
+     (crop( a, kernel_roi + a_idx ),
       crop( transform_no_edge(b,
                               AffineTransform(affine, t)), kernel_roi ),
       AbsDiffFunc<float>() ));
-
-  float inv_kernel_area = 1.0f/float(prod(kernel_size));
 
   // calculate cost is a sum so we are going to normalize by kernel size
   result *= (1.0/INTENSITY_SIGMA) * inv_kernel_area;
@@ -136,13 +142,21 @@ void evaluate_disparity( ImageView<float> const& a, ImageView<float> const& b,
                          float theta,
                          SearchParameters const& ab,
                          ImageView<float>& ab_cost ) {
-  for ( int j = 0; j < ab.disparity.rows(); j++ ) {
-    for ( int i = 0; i < ab.disparity.cols(); i++ ) {
-      ab_cost(i,j) =
-        calculate_cost( Vector2f(i,j), ab.disparity(i,j),
-                        ab.normal(i,j), ab.affine(i,j),
-                        theta, smooth_disparity(i, j), smooth_normal(i, j),
-                        a, b, a_roi, b_roi, kernel_size );
+  float* output = &ab_cost(0,0);
+  Vector2i ba_tf = a_roi.min() - b_roi.min();
+  Vector2i idx;
+  BBox2i kernel_roi( -kernel_size/2, kernel_size/2 + Vector2i(1,1) );
+  double inv_kernel_area = 1.0 / prod(kernel_size);
+  for ( idx.y() = 0; idx.y() < ab.disparity.rows(); idx.y()++ ) {
+    for ( idx.x() = 0; idx.x() < ab.disparity.cols(); idx.x()++ ) {
+      *output =
+        calculate_cost( idx - a_roi.min(), ba_tf,
+                        ab.disparity(idx.x(), idx.y()),
+                        ab.normal(idx.x(), idx.y()), ab.affine(idx.x(), idx.y()),
+                        theta, smooth_disparity(idx.x(), idx.y()),
+                        smooth_normal(idx.x(), idx.y()),
+                        a, b, kernel_roi, inv_kernel_area );
+      output++;
     }
   }
 }
@@ -184,6 +198,9 @@ void evaluate_8_connected( ImageView<float> const& a,
   Matrix2x2f affine_new;
   BBox2i ba_box = bounding_box(ba_in.disparity);
   BBox2i ab_box = bounding_box(ab_in.disparity);
+  Vector2i ba_tf = a_roi.min() - b_roi.min();
+  BBox2i kernel_roi( -kernel_size/2, kernel_size/2 + Vector2i(1,1) );
+  double inv_kernel_area = 1.0 / prod(kernel_size);
   for ( int j = 0; j < ab_out.disparity.rows(); j++ ) {
     for ( int i = 0; i < ab_out.disparity.cols(); i++ ) {
       Vector2f loc(i,j);
@@ -194,9 +211,9 @@ void evaluate_8_connected( ImageView<float> const& a,
         n_new = ab_in.normal(i-1,j);
         affine_new = ab_in.affine(i-1,j);
         if ( ba_box.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, n_new, affine_new,
+          cost = calculate_cost(loc - a_roi.min(), ba_tf, d_new, n_new, affine_new,
                                 theta, ab_disparity_smooth(i-1,j), ab_normal_smooth(i-1,j),
-                                a, b, a_roi, b_roi, kernel_size);
+                                a, b, kernel_roi, inv_kernel_area);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
             ab_out.disparity(i,j) = d_new;
@@ -211,9 +228,9 @@ void evaluate_8_connected( ImageView<float> const& a,
         n_new = ab_in.normal(i,j-1);
         affine_new = ab_in.affine(i,j-1);
         if ( ba_box.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, n_new, affine_new,
+          cost = calculate_cost(loc - a_roi.min(), ba_tf, d_new, n_new, affine_new,
                                 theta, ab_disparity_smooth(i,j-1), ab_normal_smooth(i,j-1),
-                                a, b, a_roi, b_roi, kernel_size);
+                                a, b, kernel_roi, inv_kernel_area);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
             ab_out.disparity(i,j) = d_new;
@@ -228,9 +245,9 @@ void evaluate_8_connected( ImageView<float> const& a,
         n_new = ab_in.normal(i+1,j);
         affine_new = ab_in.affine(i+1,j);
         if ( ba_box.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, n_new, affine_new,
+          cost = calculate_cost(loc - a_roi.min(), ba_tf, d_new, n_new, affine_new,
                                 theta, ab_disparity_smooth(i+1,j), ab_normal_smooth(i+1,j),
-                                a, b, a_roi, b_roi, kernel_size);
+                                a, b, kernel_roi, inv_kernel_area);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
             ab_out.disparity(i,j) = d_new;
@@ -245,9 +262,9 @@ void evaluate_8_connected( ImageView<float> const& a,
         n_new = ab_in.normal(i,j+1);
         affine_new = ab_in.affine(i,j+1);
         if ( ba_box.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, n_new, affine_new,
+          cost = calculate_cost(loc - a_roi.min(), ba_tf, d_new, n_new, affine_new,
                                 theta, ab_disparity_smooth(i,j+1), ab_normal_smooth(i,j+1),
-                                a, b, a_roi, b_roi, kernel_size);
+                                a, b, kernel_roi, inv_kernel_area);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
             ab_out.disparity(i,j) = d_new;
@@ -264,10 +281,11 @@ void evaluate_8_connected( ImageView<float> const& a,
           n_new = ab_in.normal(i+offset.x(),j+offset.y());
           affine_new = ab_in.affine(i+offset.x(),j+offset.y());
           if ( ba_box.contains(d_new + loc)) {
-            cost = calculate_cost(loc, d_new, n_new, affine_new, theta,
+            cost = calculate_cost(loc - a_roi.min(), ba_tf, d_new, n_new, affine_new,
+                                  theta,
                                   ab_disparity_smooth(i+offset.x(),j+offset.y()),
                                   ab_normal_smooth(i+offset.x(),j+offset.y()),
-                                  a, b, a_roi, b_roi, kernel_size);
+                                  a, b, kernel_roi, inv_kernel_area);
             if (cost < ab_cost_in(i,j)) {
               ab_cost_out(i,j) = cost;
               ab_out.disparity(i,j) = d_new;
@@ -296,9 +314,9 @@ void evaluate_8_connected( ImageView<float> const& a,
                     sin(angle) * skew + (1 - normal3.z()) * tensor_prod);
 
 
-          cost = calculate_cost(loc, d_new, n_new, affine_new,
+          cost = calculate_cost(loc - a_roi.min(), ba_tf, d_new, n_new, affine_new,
                                 theta, ab_disparity_smooth(i+d[0],j+d[1]), ab_normal_smooth(i+d[0],j+d[1]),
-                                a, b, a_roi, b_roi, kernel_size);
+                                a, b, kernel_roi, inv_kernel_area);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
             ab_out.disparity(i,j) = d_new;
