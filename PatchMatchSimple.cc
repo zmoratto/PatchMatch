@@ -14,9 +14,9 @@ void AddDisparityNoise(BBox2f const& max_search_range,
                        BBox2f const& additive_search_range,
                        BBox2i const& other_image_bbox,
                        ImageView<Vector2f>& disparity) {
-  static boost::rand48 gen(0);
   typedef boost::variate_generator<boost::rand48, boost::random::uniform_01<> > vargen_type;
-  vargen_type random_source(gen, boost::random::uniform_01<>());
+  static vargen_type random_source(boost::rand48(0), boost::random::uniform_01<>());
+  std::cout << random_source() << std::endl;
 
   BBox2f local_search_range_max, local_search_range;
   for (int j = 0; j < disparity.rows(); j++) {

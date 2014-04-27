@@ -10,6 +10,7 @@
 
 #include <gtest/gtest.h>
 #include <numeric>
+#include <boost/random/linear_congruential.hpp>
 
 #include <PatchMatchSimple.h>
 #include <DisparityFromIP.h>
@@ -20,8 +21,8 @@ namespace vw {
   template<> struct PixelFormatID<Vector4f> { static const PixelFormatEnum value = VW_PIXEL_GENERIC_4_CHANNEL; };
 }
 
-#define DISPARITY_SMOOTHNESS_SIGMA 3.0f
-#define NORMAL_SMOOTHNESS_SIGMA 0.05f
+#define DISPARITY_SMOOTHNESS_SIGMA 20.0f
+#define NORMAL_SMOOTHNESS_SIGMA 0.1f
 #define INTENSITY_SIGMA 0.002f
 
 using namespace vw;
@@ -67,6 +68,14 @@ float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity, Vector2f
       AbsDiffFunc<float>() ));
 
   float inv_kernel_area = 1.0f/float(prod(kernel_size));
+
+  if ( a_loc == Vector2f(450, 450) ||
+       a_loc == Vector2f(500, 500) ||
+       a_loc == Vector2f(550, 550) ) {
+    std::cout << "Correlation: " << result * inv_kernel_area << std::endl;
+    std::cout << "Disparity  : " << norm_2(disparity - disparity_smooth) << std::endl;
+    std::cout << "Normal     : " << norm_2(normal - normal_smooth) << std::endl;
+  }
 
   // calculate cost is a sum so we are going to normalize by kernel size
   result *= (1.0/INTENSITY_SIGMA) * inv_kernel_area;
@@ -285,7 +294,7 @@ void evaluate_8_connected( ImageView<float> const& a,
         // Compare LR alternative
         Vector2f d = ab_disparity_in(i,j);
         d_new = -ba_disparity(i+d[0], j+d[1]);
-        n_new = -ba_normal(i+d[0], j+d[1]);
+        n_new = ba_normal(i+d[0], j+d[1]);
         if ( ba_box.contains(d_new + loc)) {
           cost = calculate_cost(loc, d_new, n_new,
                                 theta, ab_disparity_smooth(i+d[0],j+d[1]), ab_normal_smooth(i+d[0],j+d[1]),
@@ -331,26 +340,39 @@ TEST( PatchMatchHeise, Basic ) {
   Vector2i kernel_size(7, 7);
 
   // Filling in the disparity guess
-  fill(lr_normal, Vector2f(0, 0));
-  fill(rl_normal, Vector2f(0, 0));
-  fill(lr_normal_copy, Vector2f(0, 0));
-  fill(rl_normal_copy, Vector2f(0, 0));
   AddDisparityNoise(search_range, search_range,
                     bounding_box(rl_disparity), lr_disparity);
   AddDisparityNoise(search_range_rl, search_range_rl,
                     bounding_box(lr_disparity), rl_disparity);
+  AddDisparityNoise(search_range, search_range,
+                    bounding_box(rl_disparity), lr_disparity_smooth);
+  AddDisparityNoise(search_range_rl, search_range_rl,
+                    bounding_box(lr_disparity), rl_disparity_smooth);
   AddDisparityNoise(BBox2f(-.7, -.7, 1.4, 1.4),
                     BBox2f(-Vector2f(.7,.7),Vector2f(.7,.7)),
                     bounding_box(rl_disparity), lr_normal);
   AddDisparityNoise(BBox2f(-.7, -.7, 1.4, 1.4),
                     BBox2f(-Vector2f(.7,.7),Vector2f(.7,.7)),
                     bounding_box(lr_disparity), rl_normal);
-  DisparityFromIP("arctic/asp_al-L.crop.8__asp_al-R.crop.8.match", lr_disparity, false);
-  DisparityFromIP("arctic/asp_al-L.crop.8__asp_al-R.crop.8.match", rl_disparity, true);
+  DisparityFromIP("arctic/asp_al-L.crop.8__asp_al-R.crop.8.match", lr_disparity_smooth, false);
+  DisparityFromIP("arctic/asp_al-L.crop.8__asp_al-R.crop.8.match", rl_disparity_smooth, true);
+  for (int j = 0; j < lr_disparity.rows(); j += 2) {
+    for (int i = 0; i < lr_disparity.cols(); i += 2) {
+      lr_disparity(i,j) = lr_disparity_smooth(i,j);
+    }
+  }
+  for (int j = 0; j < rl_disparity.rows(); j += 2) {
+    for (int i = 0; i < rl_disparity.cols(); i += 2) {
+      rl_disparity(i,j) = rl_disparity_smooth(i,j);
+    }
+  }
+
   lr_normal_smooth = copy(lr_normal);
   rl_normal_smooth = copy(rl_normal);
-  lr_disparity_smooth = copy(lr_disparity);
-  rl_disparity_smooth = copy(rl_disparity);
+  // imROF(lr_disparity, .05,
+  //       20, lr_disparity_smooth);
+  // imROF(rl_disparity, .05,
+  //       20, rl_disparity_smooth);
 
   ImageView<float> lr_cost( lr_disparity.cols(), lr_disparity.rows() ),
     rl_cost( rl_disparity.cols(), rl_disparity.rows() ),
@@ -372,9 +394,11 @@ TEST( PatchMatchHeise, Basic ) {
 
   write_image("0000_lr_input.tif", lr_disparity);
   write_image("0000_rl_input.tif", rl_disparity);
+  write_image("0000_lr_input_sm.tif", lr_disparity_smooth);
+  write_image("0000_rl_input_sm.tif", rl_disparity_smooth);
 
-  for ( int iteration = 0; iteration < 50; iteration++ ) {
-    float theta = (1. / 50.f) * float(iteration+1);
+  for ( int iteration = 0; iteration < 6; iteration++ ) {
+    float theta = (1. / 5.f) * float(iteration+1);
     // if (iteration > 0) {
     //   theta = (1.0f - 1.0f / float(iteration))*(1.0f - 1.0f / float(iteration));
     //     //pow(2.0f,float(iteration-1))/10;
@@ -415,10 +439,7 @@ TEST( PatchMatchHeise, Basic ) {
       rl_cost_copy = copy(rl_cost);
 
       Vector2f search_range_size = search_range.size();
-      float scaling_size = 1.0/float(iteration);
-      if ( iteration == 0 ) {
-        scaling_size = 1.0;
-      }
+      float scaling_size = 1.0/pow(2,iteration);
       search_range_size *= scaling_size;
       Vector2f search_range_size_half = search_range_size / 2.0;
       Vector2f normal_search_range = scaling_size * Vector2f(.7,.7);
@@ -439,7 +460,6 @@ TEST( PatchMatchHeise, Basic ) {
         AddDisparityNoise(BBox2f(-.7, -.7, 1.4, 1.4),
                           BBox2f(-normal_search_range,normal_search_range),
                           bounding_box(lr_disparity), rl_normal_copy);
-
       }
 
       {
@@ -462,13 +482,13 @@ TEST( PatchMatchHeise, Basic ) {
 
       {
         Timer timer("\tKeep Lowest Cost", InfoMessage);
-        std::cout << lr_cost_copy(50,50) << std::endl;
-        std::cout << lr_cost(50,50) << std::endl;
+        std::cout << "Pr" << lr_cost_copy(450,450) << std::endl;
+        std::cout << "Og" << lr_cost(450,450) << std::endl;
         keep_lowest_cost( lr_disparity, lr_normal, lr_cost,
                           lr_disparity_copy, lr_normal_copy, lr_cost_copy );
         keep_lowest_cost( rl_disparity, rl_normal, rl_cost,
                           rl_disparity_copy, rl_normal_copy, rl_cost_copy );
-        std::cout << lr_cost(50,50) << std::endl;
+        std::cout << lr_cost(450,450) << std::endl;
         write_image("kept_lr.tif", lr_disparity);
         write_image("kept_rl.tif", rl_disparity);
 
@@ -499,17 +519,17 @@ TEST( PatchMatchHeise, Basic ) {
     // Solve for smooth disparity
     {
       Timer timer("\tTV Minimization", InfoMessage);
-      int rof_iterations = 5;
+      int rof_iterations = 15;
       if ( iteration == 0 ) {
-        rof_iterations = 20;
+        rof_iterations = 30;
       }
-      imROF(lr_disparity, theta * theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA),
+      imROF(lr_disparity, theta * theta * theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA),
             rof_iterations, lr_disparity_smooth);
-      imROF(rl_disparity, theta * theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA),
+      imROF(rl_disparity, theta * theta * theta * (1.0/DISPARITY_SMOOTHNESS_SIGMA),
             rof_iterations, rl_disparity_smooth);
-      imROF(lr_normal, theta * theta * (1.0/NORMAL_SMOOTHNESS_SIGMA),
+      imROF(lr_normal, theta * theta * theta * (1.0/NORMAL_SMOOTHNESS_SIGMA),
             rof_iterations, lr_normal_smooth);
-      imROF(rl_normal, theta * theta * (1.0/NORMAL_SMOOTHNESS_SIGMA),
+      imROF(rl_normal, theta * theta * theta * (1.0/NORMAL_SMOOTHNESS_SIGMA),
             rof_iterations, rl_normal_smooth);
     }
     {
@@ -525,8 +545,8 @@ TEST( PatchMatchHeise, Basic ) {
       write_image(std::string(prefix) + "_rl_n_v.tif", rl_normal_smooth);
       write_image(std::string(prefix) + "_rl_v.tif", rl_disparity_smooth);
       write_template(
-                     Vector2f(50, 50), lr_disparity(50, 50),
-                     lr_normal(50, 50), left_expanded,
+                     Vector2f(450, 450), lr_disparity(450, 450),
+                     lr_normal(450, 450), left_expanded,
                      right_expanded, left_expanded_roi,
                      right_expanded_roi, kernel_size, std::string(prefix) );
     }
