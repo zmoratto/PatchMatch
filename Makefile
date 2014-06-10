@@ -6,7 +6,7 @@ BDIR=$(HOME)/packages/base_system
 CXXFLAGS += -g -O1 -I$(BDIR)/include -I$(BDIR)/include/boost-1_55 -I$(VWDIR)/include -I$(PWD) -I$(ASPDIR)/include -ffast-math -Wall -Wno-unused-local-typedefs -DTRILIBRARY #-DVW_ENABLE_BOUNDS_CHECK=1 
 CFLAGS += -DTRILIBRARY
 
-LDFLAGS += -L$(BDIR)/lib -lboost_system-mt-1_55 -lboost_thread-mt-1_55 -lboost_filesystem-mt-1_55 -lboost_program_options-mt-1_55 -L$(VWDIR)/lib -lvwCore -lvwMath -lvwFileIO -lvwImage -lvwStereo -lvwInterestPoint -L$(ASPDIR)/lib -laspCore -L$(GTEST)/lib -L$(PWD) -lgtest -lpthread -Wl,-rpath,$(BDIR)/lib -Wl,-rpath,$(VWDIR)/lib
+LDFLAGS += -L$(BDIR)/lib -lboost_system-mt-1_55 -lboost_thread-mt-1_55 -lboost_filesystem-mt-1_55 -lboost_program_options-mt-1_55 -L$(VWDIR)/lib -lvwCore -lvwMath -lvwFileIO -lvwImage -lvwStereo -lvwInterestPoint -L$(ASPDIR)/lib -laspCore -L$(GTEST)/lib -L$(PWD) -lgtest -lpthread -Wl,-rpath,$(BDIR)/lib -Wl,-rpath,$(VWDIR)/lib -Wl,-rpath,$(ASPDIR)/lib -Wl,-rpath,$(GTEST)/lib
 
 %.o : %.cc
 	$(CXX) -c -o $@ $(CXXFLAGS) $^
