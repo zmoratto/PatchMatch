@@ -26,41 +26,43 @@ struct AbsDiffFunc : public vw::ReturnFixedType<PixelT> {
 };
 
 void
-stereo::PatchMatchBase::add_uniform_noise(BBox2f const& range_of_noise_to_add,
-                                          BBox2f const& max_search_range,
-                                          BBox2f const& other_image_bbox,
+stereo::PatchMatchBase::add_uniform_noise(BBox2i const& range_of_noise_to_add, // Inclusive
+                                          BBox2i const& max_search_range, // Inclusive
+                                          BBox2i const& other_image_bbox, // Exclusive
                                           ImageView<stereo::PatchMatchBase::DispT>& disparity ) const {
   typedef boost::random::uniform_01<float> DistributionT;
   typedef boost::variate_generator<GenT, DistributionT > vargen_type;
   vargen_type random_source(GenT(0), DistributionT());
-  //vargen_type random_source(boost::rand48(0), boost::random::uniform_01<float>());
 
-  BBox2f local_search_range_bounds, local_search_range;
+  BBox2i local_search_range_bounds, local_search_range;
   for (int j = 0; j < disparity.rows(); j++) {
     local_search_range_bounds.min().y() =
       std::max(max_search_range.min().y(),
-               float(other_image_bbox.min().y() - j));
+               other_image_bbox.min().y() - j);
     local_search_range_bounds.max().y() =
       std::min(max_search_range.max().y(),
-               float(other_image_bbox.max().y() - j));
+               other_image_bbox.max().y() - j - 1);
     for (int i = 0; i < disparity.cols(); i++) {
       local_search_range_bounds.min().x() =
         std::max(max_search_range.min().x(),
-                 float(other_image_bbox.min().x() - i));
+                 other_image_bbox.min().x() - i);
       local_search_range_bounds.max().x() =
         std::min(max_search_range.max().x(),
-                 float(other_image_bbox.max().x() - i));
+                 other_image_bbox.max().x() - i - 1);
       local_search_range = range_of_noise_to_add + disparity(i,j);
       local_search_range.crop(local_search_range_bounds);
       disparity(i,j) =
         elem_prod(Vector2f(random_source(),random_source()),
                   local_search_range.size()) + local_search_range.min();
+
+      VW_DEBUG_ASSERT(other_image_bbox.contains(Vector2i(i,j) + disparity(i,j)),
+                      MathErr() << "Modified disparity points outside of other image.");
     }
   }
 }
 
 // Simple square kernels
-float stereo::PatchMatchBase::calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
+float stereo::PatchMatchBase::calculate_cost( Vector2i const& a_loc, Vector2i const& disparity,
                                               ImageView<float> const& a, ImageView<float> const& b,
                                               BBox2i const& a_roi, BBox2i const& b_roi ) const {
   BBox2i kernel_roi( -m_kernel_size/2, m_kernel_size/2 + Vector2i(1,1) );
@@ -69,30 +71,29 @@ float stereo::PatchMatchBase::calculate_cost( Vector2f const& a_loc, Vector2f co
     sum_of_pixel_values
     (per_pixel_filter
      (crop( a, kernel_roi + a_loc - a_roi.min() ),
-      crop( transform_no_edge(b, TranslateTransform(-(a_loc.x() + disparity[0] - float(b_roi.min().x())),
-                                                    -(a_loc.y() + disparity[1] - float(b_roi.min().y())))),
-            kernel_roi ), AbsDiffFunc<float>() ));
+      crop( b, kernel_roi + a_loc + disparity - b_roi.min() ),
+      AbsDiffFunc<float>() ));
   return result;
 }
 
 // Evaluates current disparity and writes its cost
 void stereo::PatchMatchBase::evaluate_disparity( ImageView<float> const& a, ImageView<float> const& b,
                                                  BBox2i const& a_roi, BBox2i const& b_roi,
-                                                 ImageView<Vector2f>& ab_disparity,
+                                                 ImageView<DispT>& ab_disparity,
                                                  ImageView<float>& ab_cost ) const {
   for ( int j = 0; j < ab_disparity.rows(); j++ ) {
     for ( int i = 0; i < ab_disparity.cols(); i++ ) {
       ab_cost(i,j) =
-        calculate_cost( Vector2f(i,j),
+        calculate_cost( Vector2i(i,j),
                         ab_disparity(i,j),
                         a, b, a_roi, b_roi );
     }
   }
 }
 
-void stereo::PatchMatchBase::keep_lowest_cost( ImageView<Vector2f>& dest_disp,
+void stereo::PatchMatchBase::keep_lowest_cost( ImageView<DispT>& dest_disp,
                                                ImageView<float>& dest_cost,
-                                               ImageView<Vector2f> const& src_disp,
+                                               ImageView<DispT> const& src_disp,
                                                ImageView<float> const& src_cost ) const {
   for ( int j = 0; j < dest_disp.rows(); j++ ) {
     for ( int i = 0; i < dest_disp.cols(); i++ ) {
@@ -108,17 +109,17 @@ void stereo::PatchMatchBase::keep_lowest_cost( ImageView<Vector2f>& dest_disp,
 void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
                                                    ImageView<float> const& b,
                                                    BBox2i const& a_roi, BBox2i const& b_roi,
-                                                   ImageView<Vector2f> const& ba_disparity,
+                                                   ImageView<DispT> const& ba_disparity,
                                                    BBox2i const& ba_roi,
-                                                   ImageView<Vector2f> const& ab_disparity_in,
+                                                   ImageView<DispT> const& ab_disparity_in,
                                                    ImageView<float> const& ab_cost_in,
-                                                   ImageView<Vector2f>& ab_disparity_out,
+                                                   ImageView<DispT>& ab_disparity_out,
                                                    ImageView<float>& ab_cost_out ) const {
   float cost;
-  Vector2f d_new;
+  DispT d_new;
   for ( int j = 0; j < ab_disparity_out.rows(); j++ ) {
     for ( int i = 0; i < ab_disparity_out.cols(); i++ ) {
-      Vector2f loc(i,j);
+      DispT loc(i,j);
 
       if ( i > 0 ) {
         // Compare left
@@ -211,7 +212,7 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
       }
       {
         // Compare LR alternative
-        Vector2f d = ab_disparity_in(i,j);
+        DispT d = ab_disparity_in(i,j);
         d_new = -ba_disparity(i + d[0] - ba_roi.min().x(),
                               j + d[1] - ba_roi.min().y());
         if ( ba_roi.contains(d_new + loc)) {

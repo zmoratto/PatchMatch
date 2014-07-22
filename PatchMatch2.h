@@ -37,17 +37,17 @@ namespace vw {
       float m_consistency_threshold;
       int32 m_max_iterations;
 
-      typedef Vector2f DispT;
+      typedef Vector2i DispT;
       typedef boost::random::rand48 GenT;
 
-      void add_uniform_noise(BBox2f const& range_of_noise_to_add,
-                             BBox2f const& max_search_range,
-                             BBox2f const& other_image_bbox,
+      void add_uniform_noise(BBox2i const& range_of_noise_to_add,
+                             BBox2i const& max_search_range,
+                             BBox2i const& other_image_bbox,
                              ImageView<DispT>& disparity ) const;
 
 
       // Simple square kernels
-      float calculate_cost( Vector2f const& a_loc, Vector2f const& disparity,
+      float calculate_cost( Vector2i const& a_loc, Vector2i const& disparity,
                             ImageView<float> const& a, ImageView<float> const& b,
                             BBox2i const& a_roi, BBox2i const& b_roi ) const;
 
@@ -57,7 +57,7 @@ namespace vw {
                                ImageView<DispT>& ab_disparity,
                                ImageView<float>& ab_cost ) const;
 
-      void keep_lowest_cost( ImageView<Vector2f>& dest_disp,
+      void keep_lowest_cost( ImageView<DispT>& dest_disp,
                              ImageView<float>& dest_cost,
                              ImageView<DispT> const& src_disp,
                              ImageView<float> const& src_cost ) const;
@@ -66,11 +66,11 @@ namespace vw {
       void evaluate_8_connected( ImageView<float> const& a,
                                  ImageView<float> const& b,
                                  BBox2i const& a_roi, BBox2i const& b_roi,
-                                 ImageView<Vector2f> const& ba_disparity,
+                                 ImageView<DispT> const& ba_disparity,
                                  BBox2i const& ba_roi,
-                                 ImageView<Vector2f> const& ab_disparity_in,
+                                 ImageView<DispT> const& ab_disparity_in,
                                  ImageView<float> const& ab_cost_in,
-                                 ImageView<Vector2f>& ab_disparity_out,
+                                 ImageView<DispT>& ab_disparity_out,
                                  ImageView<float>& ab_cost_out ) const;
 
     public:
@@ -95,7 +95,7 @@ namespace vw {
       }
 
     public:
-      typedef PixelMask<Vector2f> pixel_type;
+      typedef PixelMask<DispT> pixel_type;
       typedef pixel_type result_type;
       typedef ProceduralPixelAccessor<PatchMatchView> pixel_accessor;
 
@@ -261,7 +261,7 @@ namespace vw {
           }
         } // end of iterations
 
-        ImageView<PixelMask<Vector2f> > final_disparity = l_disp;
+        ImageView<pixel_type > final_disparity = l_disp;
         if (m_consistency_threshold > 0) {
           stereo::cross_corr_consistency_check(final_disparity,
                                                r_disp, m_consistency_threshold, true);
