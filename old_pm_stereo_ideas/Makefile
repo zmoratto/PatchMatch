@@ -1,4 +1,4 @@
-VWDIR=$(HOME)/projects/visionworkbench/build
+VWDIR=$(HOME)/projects/VisionWorkbench/build
 ASPDIR=$(HOME)/projects/StereoPipeline/build
 GTEST=$(PWD)/gtest-1.7.0
 BDIR=$(HOME)/packages/base_system

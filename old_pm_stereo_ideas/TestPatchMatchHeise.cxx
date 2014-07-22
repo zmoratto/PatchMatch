@@ -3,9 +3,9 @@
 #include <vw/Math.h>
 #include <vw/Image.h>
 #include <vw/FileIO.h>
-#include <vw/stereo/DisparityMap.h>
-#include <vw/stereo/Correlate.h>
-#include <vw/stereo/CorrelationView.h>
+#include <vw/Stereo/DisparityMap.h>
+#include <vw/Stereo/Correlate.h>
+#include <vw/Stereo/CorrelationView.h>
 
 #include <gtest/gtest.h>
 #include <numeric>

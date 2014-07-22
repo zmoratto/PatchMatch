@@ -109,13 +109,13 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
                                                    ImageView<float> const& b,
                                                    BBox2i const& a_roi, BBox2i const& b_roi,
                                                    ImageView<Vector2f> const& ba_disparity,
+                                                   BBox2i const& ba_roi,
                                                    ImageView<Vector2f> const& ab_disparity_in,
                                                    ImageView<float> const& ab_cost_in,
                                                    ImageView<Vector2f>& ab_disparity_out,
                                                    ImageView<float>& ab_cost_out ) const {
   float cost;
   Vector2f d_new;
-  BBox2i ba_box = bounding_box(ba_disparity);
   for ( int j = 0; j < ab_disparity_out.rows(); j++ ) {
     for ( int i = 0; i < ab_disparity_out.cols(); i++ ) {
       Vector2f loc(i,j);
@@ -123,7 +123,7 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
       if ( i > 0 ) {
         // Compare left
         d_new = ab_disparity_in(i-1,j);
-        if ( ba_box.contains(d_new + loc)) {
+        if ( ba_roi.contains(d_new + loc)) {
           cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
@@ -134,7 +134,7 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
       if ( j > 0 ) {
         // Compare up
         d_new = ab_disparity_in(i,j-1);
-        if ( ba_box.contains(d_new + loc)) {
+        if ( ba_roi.contains(d_new + loc)) {
           cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
@@ -145,7 +145,7 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
       if ( i > 0 && j > 0 ) {
         // Compare upper left
         d_new = ab_disparity_in(i-1,j-1);
-        if ( ba_box.contains(d_new + loc)) {
+        if ( ba_roi.contains(d_new + loc)) {
           cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
@@ -156,7 +156,7 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
       if ( i < ab_disparity_in.cols() - 1) {
         // Compare right
         d_new = ab_disparity_in(i+1,j);
-        if ( ba_box.contains(d_new + loc)) {
+        if ( ba_roi.contains(d_new + loc)) {
           cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
@@ -167,7 +167,7 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
       if ( i < ab_disparity_in.cols() - 1 && j > 0 ) {
         // Compare upper right
         d_new = ab_disparity_in(i+1,j-1);
-        if ( ba_box.contains(d_new + loc)) {
+        if ( ba_roi.contains(d_new + loc)) {
           cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
@@ -178,7 +178,7 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
       if ( i < ab_disparity_in.cols() - 1 && j < ab_disparity_in.rows() - 1 ) {
         // Compare lower right
         d_new = ab_disparity_in(i+1,j+1);
-        if ( ba_box.contains(d_new + loc)) {
+        if ( ba_roi.contains(d_new + loc)) {
           cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
@@ -190,7 +190,7 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
       if ( j < ab_disparity_in.rows() - 1 ) {
         // Compare lower
         d_new = ab_disparity_in(i,j+1);
-        if ( ba_box.contains(d_new + loc)) {
+        if ( ba_roi.contains(d_new + loc)) {
           cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
@@ -201,7 +201,7 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
       if ( i > 0 && j < ab_disparity_in.rows() - 1 ) {
         // Compare lower left
         d_new = ab_disparity_in(i-1,j+1);
-        if ( ba_box.contains(d_new + loc)) {
+        if ( ba_roi.contains(d_new + loc)) {
           cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;
@@ -212,8 +212,9 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
       {
         // Compare LR alternative
         Vector2f d = ab_disparity_in(i,j);
-        d_new = -ba_disparity(i+d[0], j+d[1]);
-        if ( ba_box.contains(d_new + loc)) {
+        d_new = -ba_disparity(i + d[0] - ba_roi.min().x(),
+                              j + d[1] - ba_roi.min().y());
+        if ( ba_roi.contains(d_new + loc)) {
           cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
           if (cost < ab_cost_in(i,j)) {
             ab_cost_out(i,j) = cost;

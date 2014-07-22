@@ -67,6 +67,7 @@ namespace vw {
                                  ImageView<float> const& b,
                                  BBox2i const& a_roi, BBox2i const& b_roi,
                                  ImageView<Vector2f> const& ba_disparity,
+                                 BBox2i const& ba_roi,
                                  ImageView<Vector2f> const& ab_disparity_in,
                                  ImageView<float> const& ab_cost_in,
                                  ImageView<Vector2f>& ab_disparity_out,
@@ -203,11 +204,11 @@ namespace vw {
           // 8. Evaluate the current disparities
           evaluate_disparity(l_exp, r_exp,
                              l_exp_roi - l_roi.min(),
-                             r_exp_roi - r_roi.min(),
+                             r_exp_roi - l_roi.min(),
                              l_disp, l_cost);
           evaluate_disparity(r_exp, l_exp,
                              r_exp_roi - r_roi.min(),
-                             l_exp_roi - l_roi.min(),
+                             l_exp_roi - r_roi.min(),
                              r_disp, r_cost);
 
 #ifdef DEBUG
@@ -219,14 +220,14 @@ namespace vw {
           { // Propogate
             evaluate_8_connected(l_exp, r_exp,
                                  l_exp_roi - l_roi.min(),
-                                 r_exp_roi - r_roi.min(),
-                                 r_disp, l_disp,
-                                 l_cost, l_disp, l_cost);
+                                 r_exp_roi - l_roi.min(),
+                                 r_disp, r_roi - l_roi.min(),
+                                 l_disp, l_cost, l_disp, l_cost);
             evaluate_8_connected(r_exp, l_exp,
                                  r_exp_roi - r_roi.min(),
-                                 l_exp_roi - l_roi.min(),
-                                 l_disp, r_disp,
-                                 r_cost, r_disp, r_cost);
+                                 l_exp_roi - r_roi.min(),
+                                 l_disp, l_roi - r_roi.min(),
+                                 r_disp, r_cost, r_disp, r_cost);
           }
 
           { // Add noise
@@ -239,18 +240,18 @@ namespace vw {
 
             add_uniform_noise(BBox2f(-search_size_half, search_size_half),
                               m_search_region,
-                              bounding_box(r_exp), l_disp_cpy);
+                              r_roi - l_roi.min(), l_disp_cpy);
             add_uniform_noise(BBox2f(-search_size_half, search_size_half),
                               m_search_region_rl,
-                              bounding_box(l_exp), r_disp_cpy);
+                              l_roi - r_roi.min(), r_disp_cpy);
 
             evaluate_disparity(l_exp, r_exp,
                                l_exp_roi - l_roi.min(),
-                               r_exp_roi - r_roi.min(),
+                               r_exp_roi - l_roi.min(),
                                l_disp_cpy, l_cost_cpy);
             evaluate_disparity(r_exp, l_exp,
                                r_exp_roi - r_roi.min(),
-                               l_exp_roi - l_roi.min(),
+                               l_exp_roi - r_roi.min(),
                                r_disp_cpy, r_cost_cpy);
 
             keep_lowest_cost(l_disp, l_cost,
@@ -261,8 +262,10 @@ namespace vw {
         } // end of iterations
 
         ImageView<PixelMask<Vector2f> > final_disparity = l_disp;
-        stereo::cross_corr_consistency_check(final_disparity,
-                                             r_disp, m_consistency_threshold, true);
+        if (m_consistency_threshold > 0) {
+          stereo::cross_corr_consistency_check(final_disparity,
+                                               r_disp, m_consistency_threshold, true);
+        }
 
         /*
         // Perform L R check
