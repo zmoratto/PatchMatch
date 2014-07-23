@@ -59,6 +59,15 @@ namespace vw {
 
         // Find a delta disparity to refine our polynomial fit disparity map
         ImageView<PixelMask<Vector2i> > delta_disparity =
+          /*
+          stereo::pyramid_correlate(left, t_right,
+                                    constant_view(uint8(255), left),
+                                    constant_view(uint8(255), t_right),
+                                    stereo::NullOperation(),
+                                    BBox2i(Vector2i(-15,-15), Vector2i(15, 15)),
+                                    Vector2i(15, 15),
+                                    stereo::CROSS_CORRELATION, 0, 0, 2, 3);
+          */
           stereo::correlate(left, t_right, stereo::NullOperation(),
                             BBox2i(Vector2i(-15,-15), Vector2i(15, 15)),
                             Vector2i(15, 15),
