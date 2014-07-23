@@ -3,11 +3,13 @@
 #include <vw/FileIO.h>
 #include <vw/Stereo/PreFilter.h>
 #include <vw/Stereo/CorrelationView.h>
+#include <vw/Stereo/DisparityMap.h>
 
 #include <boost/program_options.hpp>
 namespace po = boost::program_options;
 
 #include <PatchMatch2.h>
+#include <SurfaceFitView.h>
 
 using namespace vw;
 
@@ -26,7 +28,7 @@ int main(int argc, char **argv) {
     int32 h_corr_min, h_corr_max;
     int32 v_corr_min, v_corr_max;
     int32 iterations;
-    int32 cross_corr_thres;
+    int32 cross_corr_thres = 2;
 
     po::options_description desc("Options");
     desc.add_options()
@@ -35,7 +37,6 @@ int main(int argc, char **argv) {
       ("right", po::value(&right_file_name), "Explicitly specify the \"right\" input file")
       ("tag", po::value(&tag)->default_value("patchmatch"), "Output prefix")
       ("iteration", po::value(&iterations)->default_value(1), "Number of patch match iterations")
-      ("cross-corr", po::value(&cross_corr_thres)->default_value(-1), "Cross correlation threshold")
       ("h-corr-min", po::value(&h_corr_min)->default_value(-70), "Minimum horizontal disparity")
       ("h-corr-max", po::value(&h_corr_max)->default_value(105), "Maximum horizontal disparity")
       ("v-corr-min", po::value(&v_corr_min)->default_value(-25), "Minimum vertical disparity")
@@ -80,13 +81,14 @@ int main(int argc, char **argv) {
     {
       vw::Timer corr_timer("Correlation Time");
       block_write_image(tag + "-D.tif",
-                        stereo::patch_match(filter.filter(left_disk_image),
-                                            filter.filter(right_disk_image),
-                                            BBox2i(Vector2i(h_corr_min, v_corr_min),
-                                                   Vector2i(h_corr_max, v_corr_max)),
-                                            Vector2i(15, 15) /* kernel size */,
-                                            cross_corr_thres,
-                                            iterations /* number of iterations */),
+                        stereo::surface_fit
+                        (stereo::patch_match(filter.filter(left_disk_image),
+                                             filter.filter(right_disk_image),
+                                             BBox2i(Vector2i(h_corr_min, v_corr_min),
+                                                    Vector2i(h_corr_max, v_corr_max)),
+                                             Vector2i(15, 15) /* kernel size */,
+                                             cross_corr_thres,
+                                             iterations /* number of iterations */)),
                         TerminalProgressCallback( "", "Rendering: "));
     }
 
