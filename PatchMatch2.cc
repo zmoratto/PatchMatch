@@ -253,6 +253,7 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
           }
         }
       }
+#ifndef DISABLE_RL
       {
         // Compare LR alternative
         DispT d = ab_disparity(i,j);
@@ -266,6 +267,7 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
           }
         }
       }
+#endif
 
       ab_cost(i,j) = curr_best_cost;
       ab_disparity(i,j) = curr_best_d;

@@ -186,19 +186,22 @@ namespace vw {
         // 7. Write uniform noise
         add_uniform_noise(m_search_region, m_search_region,
                           r_roi - l_roi.min(), l_disp);
+#ifndef DISABLE_RL
         add_uniform_noise(m_search_region_rl, m_search_region_rl,
                           l_roi - r_roi.min(), r_disp );
+#endif
 
         // 8. Evaluate the current disparities
         evaluate_disparity(l_exp, r_exp,
                            l_exp_roi - l_roi.min(),
                            r_exp_roi - l_roi.min(),
                            l_disp, l_cost);
-
+#ifndef DISABLE_RL
         evaluate_disparity(r_exp, l_exp,
                            r_exp_roi - r_roi.min(),
                            l_exp_roi - r_roi.min(),
                            r_disp, r_cost);
+#endif
 
 #ifdef DEBUG
         std::cout << std::setprecision(10)
@@ -214,11 +217,13 @@ namespace vw {
                                  r_exp_roi - l_roi.min(),
                                  r_disp, r_roi - l_roi.min(),
                                  l_disp, l_cost);
+#ifndef DISABLE_RL
             evaluate_8_connected(r_exp, l_exp,
                                  r_exp_roi - r_roi.min(),
                                  l_exp_roi - r_roi.min(),
                                  l_disp, l_roi - r_roi.min(),
                                  r_disp, r_cost);
+#endif
           }
 
           { // Add noise
@@ -232,23 +237,29 @@ namespace vw {
             add_uniform_noise(BBox2f(-search_size_half, search_size_half),
                               m_search_region,
                               r_roi - l_roi.min(), l_disp_cpy);
+#ifndef DISABLE_RL
             add_uniform_noise(BBox2f(-search_size_half, search_size_half),
                               m_search_region_rl,
                               l_roi - r_roi.min(), r_disp_cpy);
+#endif
 
             evaluate_disparity(l_exp, r_exp,
                                l_exp_roi - l_roi.min(),
                                r_exp_roi - l_roi.min(),
                                l_disp_cpy, l_cost_cpy);
+#ifndef DISABLE_RL
             evaluate_disparity(r_exp, l_exp,
                                r_exp_roi - r_roi.min(),
                                l_exp_roi - r_roi.min(),
                                r_disp_cpy, r_cost_cpy);
+#endif
 
             keep_lowest_cost(l_disp, l_cost,
                              l_disp_cpy, l_cost_cpy);
+#ifndef DISABLE_RL
             keep_lowest_cost(r_disp, r_cost,
                              r_disp_cpy, r_cost_cpy);
+#endif
           }
         } // end of iterations
 
@@ -257,10 +268,14 @@ namespace vw {
                   << "Ending cost:\t" << sum_of_pixel_values(l_cost) << std::endl;
 #endif
 
+#ifndef DISABLE_RL
         ImageView<pixel_type > final_disparity(l_disp.cols(), l_disp.rows());
         cross_corr_consistency_check(l_disp, r_disp,
                                      l_roi, r_roi,
                                      final_disparity);
+#else
+        ImageView<pixel_type> final_disparity = l_disp;
+#endif
 
         return prerasterize_type(final_disparity,
                                  -bbox.min().x(), -bbox.min().y(),
