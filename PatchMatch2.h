@@ -36,6 +36,11 @@ namespace vw {
       Vector2i m_expansion;
       float m_consistency_threshold;
       int32 m_max_iterations;
+      BBox2i m_kernel_roi;
+      BBox2i m_kernel_roi_left_p, m_kernel_roi_left_n;
+      BBox2i m_kernel_roi_right_p, m_kernel_roi_right_n;
+      BBox2i m_kernel_roi_top_p, m_kernel_roi_top_n;
+      BBox2i m_kernel_roi_bottom_p, m_kernel_roi_bottom_n;
 
       typedef Vector2i DispT;
       typedef boost::random::rand48 GenT;
@@ -49,7 +54,8 @@ namespace vw {
       // Simple square kernels
       float calculate_cost( Vector2i const& a_loc, Vector2i const& disparity,
                             ImageView<float> const& a, ImageView<float> const& b,
-                            BBox2i const& a_roi, BBox2i const& b_roi ) const;
+                            BBox2i const& a_roi, BBox2i const& b_roi,
+                            BBox2i const& kernel_roi) const;
 
       // Evaluates current disparity and writes its cost
       void evaluate_disparity( ImageView<float> const& a, ImageView<float> const& b,
@@ -68,10 +74,8 @@ namespace vw {
                                  BBox2i const& a_roi, BBox2i const& b_roi,
                                  ImageView<DispT> const& ba_disparity,
                                  BBox2i const& ba_roi,
-                                 ImageView<DispT> const& ab_disparity_in,
-                                 ImageView<float> const& ab_cost_in,
-                                 ImageView<DispT>& ab_disparity_out,
-                                 ImageView<float>& ab_cost_out ) const;
+                                 ImageView<DispT>& ab_disparity,
+                                 ImageView<float>& ab_cost) const;
 
     public:
       PatchMatchBase( BBox2i const& bbox, Vector2i const& kernel,
@@ -179,55 +183,36 @@ namespace vw {
         add_uniform_noise(m_search_region_rl, m_search_region_rl,
                           l_roi - r_roi.min(), r_disp );
 
-#ifdef DEBUG
-        {
-          std::ostringstream ostr;
-          ostr << bbox.min()[0] << "_" << bbox.min()[1] << "_";
-          write_image( ostr.str() + "noisel-D.tif", l_disp );
-          write_image( ostr.str() + "noiser-D.tif", r_disp );
-        }
-#endif
+        // 8. Evaluate the current disparities
+        evaluate_disparity(l_exp, r_exp,
+                           l_exp_roi - l_roi.min(),
+                           r_exp_roi - l_roi.min(),
+                           l_disp, l_cost);
 
-#ifdef DEBUG
-        {
-          std::ostringstream ostr;
-          ostr << bbox.min()[0] << "_" << bbox.min()[1] << "_";
-          write_image( ostr.str() + "lexp.tif", l_exp );
-          write_image( ostr.str() + "rexp.tif", r_exp );
-        }
-#endif
-
-
-        // 9. Implement iterative search.
-        for ( int iteration = 0; iteration < m_max_iterations; iteration++ ) {
-
-          // 8. Evaluate the current disparities
-          evaluate_disparity(l_exp, r_exp,
-                             l_exp_roi - l_roi.min(),
-                             r_exp_roi - l_roi.min(),
-                             l_disp, l_cost);
-          evaluate_disparity(r_exp, l_exp,
-                             r_exp_roi - r_roi.min(),
-                             l_exp_roi - r_roi.min(),
-                             r_disp, r_cost);
+        evaluate_disparity(r_exp, l_exp,
+                           r_exp_roi - r_roi.min(),
+                           l_exp_roi - r_roi.min(),
+                           r_disp, r_cost);
 
 #ifdef DEBUG
           std::cout << std::setprecision(10)
                     << "Starting cost:\t" << sum_of_pixel_values(l_cost) << std::endl;
 #endif
 
+        // 9. Implement iterative search.
+        for ( int iteration = 0; iteration < m_max_iterations; iteration++ ) {
 
           { // Propogate
             evaluate_8_connected(l_exp, r_exp,
                                  l_exp_roi - l_roi.min(),
                                  r_exp_roi - l_roi.min(),
                                  r_disp, r_roi - l_roi.min(),
-                                 l_disp, l_cost, l_disp, l_cost);
+                                 l_disp, l_cost);
             evaluate_8_connected(r_exp, l_exp,
                                  r_exp_roi - r_roi.min(),
                                  l_exp_roi - r_roi.min(),
                                  l_disp, l_roi - r_roi.min(),
-                                 r_disp, r_cost, r_disp, r_cost);
+                                 r_disp, r_cost);
           }
 
           { // Add noise
@@ -260,6 +245,11 @@ namespace vw {
                              r_disp_cpy, r_cost_cpy);
           }
         } // end of iterations
+
+#ifdef DEBUG
+          std::cout << std::setprecision(10)
+                    << "Ending cost:\t" << sum_of_pixel_values(l_cost) << std::endl;
+#endif
 
         ImageView<pixel_type > final_disparity = l_disp;
         if (m_consistency_threshold > 0) {

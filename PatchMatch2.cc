@@ -49,14 +49,24 @@ stereo::PatchMatchBase::add_uniform_noise(BBox2i const& range_of_noise_to_add, /
       local_search_range_bounds.max().x() =
         std::min(max_search_range.max().x(),
                  other_image_bbox.max().x() - i - 1);
-      local_search_range = range_of_noise_to_add + disparity(i,j);
+      local_search_range = range_of_noise_to_add;
+      local_search_range.min() += disparity(i, j);
+      local_search_range.max() += disparity(i, j);
       local_search_range.crop(local_search_range_bounds);
+
+#ifdef DEBUG
+      DispT d =
+        elem_prod(Vector2f(random_source(),random_source()),
+                  local_search_range.size()) + local_search_range.min();
+      VW_DEBUG_ASSERT(other_image_bbox.contains(Vector2i(i,j) + d),
+                      MathErr() << "Modified disparity points outside of other image.");
+      disparity(i,j) = d;
+#else
       disparity(i,j) =
         elem_prod(Vector2f(random_source(),random_source()),
                   local_search_range.size()) + local_search_range.min();
 
-      VW_DEBUG_ASSERT(other_image_bbox.contains(Vector2i(i,j) + disparity(i,j)),
-                      MathErr() << "Modified disparity points outside of other image.");
+#endif
     }
   }
 }
@@ -64,9 +74,8 @@ stereo::PatchMatchBase::add_uniform_noise(BBox2i const& range_of_noise_to_add, /
 // Simple square kernels
 float stereo::PatchMatchBase::calculate_cost( Vector2i const& a_loc, Vector2i const& disparity,
                                               ImageView<float> const& a, ImageView<float> const& b,
-                                              BBox2i const& a_roi, BBox2i const& b_roi ) const {
-  BBox2i kernel_roi( -m_kernel_size/2, m_kernel_size/2 + Vector2i(1,1) );
-
+                                              BBox2i const& a_roi, BBox2i const& b_roi,
+                                              BBox2i const& kernel_roi) const {
   float result =
     sum_of_pixel_values
     (per_pixel_filter
@@ -86,7 +95,8 @@ void stereo::PatchMatchBase::evaluate_disparity( ImageView<float> const& a, Imag
       ab_cost(i,j) =
         calculate_cost( Vector2i(i,j),
                         ab_disparity(i,j),
-                        a, b, a_roi, b_roi );
+                        a, b, a_roi, b_roi,
+                        m_kernel_roi);
     }
   }
 }
@@ -111,118 +121,154 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
                                                    BBox2i const& a_roi, BBox2i const& b_roi,
                                                    ImageView<DispT> const& ba_disparity,
                                                    BBox2i const& ba_roi,
-                                                   ImageView<DispT> const& ab_disparity_in,
-                                                   ImageView<float> const& ab_cost_in,
-                                                   ImageView<DispT>& ab_disparity_out,
-                                                   ImageView<float>& ab_cost_out ) const {
+                                                   ImageView<DispT>& ab_disparity,
+                                                   ImageView<float>& ab_cost) const {
   float cost;
   DispT d_new;
-  for ( int j = 0; j < ab_disparity_out.rows(); j++ ) {
-    for ( int i = 0; i < ab_disparity_out.cols(); i++ ) {
+  for ( int j = 0; j < ab_disparity.rows(); j++ ) {
+    for ( int i = 0; i < ab_disparity.cols(); i++ ) {
       DispT loc(i,j);
+
+      float curr_best_cost = ab_cost(i,j);
+      DispT curr_best_d = ab_disparity(i, j);
 
       if ( i > 0 ) {
         // Compare left
-        d_new = ab_disparity_in(i-1,j);
-        if ( ba_roi.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
-          if (cost < ab_cost_in(i,j)) {
-            ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
+        d_new = ab_disparity(i-1,j);
+        if ( ba_roi.contains(d_new + loc) && curr_best_d != d_new) {
+          cost = ab_cost(i - 1, j)
+            + calculate_cost(loc, d_new, a, b, a_roi, b_roi,
+                             m_kernel_roi_left_p)
+            - calculate_cost(loc, d_new, a, b, a_roi, b_roi,
+                             m_kernel_roi_left_n);
+#ifdef DEBUG
+          VW_DEBUG_ASSERT(fabs(cost - calculate_cost(loc, d_new, a, b, a_roi, b_roi,
+                                                     m_kernel_roi)) < 1e-3,
+                          MathErr() << "Bug");
+#endif
+          if (cost < curr_best_cost) {
+            curr_best_cost = cost;
+            curr_best_d = d_new;
           }
         }
       }
       if ( j > 0 ) {
         // Compare up
-        d_new = ab_disparity_in(i,j-1);
-        if ( ba_roi.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
-          if (cost < ab_cost_in(i,j)) {
-            ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
+        d_new = ab_disparity(i,j - 1);
+        if ( ba_roi.contains(d_new + loc) && curr_best_d != d_new) {
+          cost = ab_cost(i, j - 1)
+            + calculate_cost(loc, d_new, a, b, a_roi, b_roi, m_kernel_roi_top_p)
+            - calculate_cost(loc, d_new, a, b, a_roi, b_roi, m_kernel_roi_top_n);
+#ifdef DEBUG
+          VW_DEBUG_ASSERT(fabs(cost - calculate_cost(loc, d_new, a, b, a_roi, b_roi,
+                                                     m_kernel_roi)) < 1e-3,
+                          MathErr() << "Bug");
+#endif
+          if (cost < curr_best_cost) {
+            curr_best_cost = cost;
+            curr_best_d = d_new;
           }
         }
       }
       if ( i > 0 && j > 0 ) {
         // Compare upper left
-        d_new = ab_disparity_in(i-1,j-1);
-        if ( ba_roi.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
-          if (cost < ab_cost_in(i,j)) {
-            ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
+        d_new = ab_disparity(i-1,j-1);
+        if ( ba_roi.contains(d_new + loc) && curr_best_d != d_new) {
+          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi, m_kernel_roi);
+          if (cost < curr_best_cost) {
+            curr_best_cost = cost;
+            curr_best_d = d_new;
           }
         }
       }
-      if ( i < ab_disparity_in.cols() - 1) {
+      if ( i < ab_disparity.cols() - 1) {
         // Compare right
-        d_new = ab_disparity_in(i+1,j);
-        if ( ba_roi.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
-          if (cost < ab_cost_in(i,j)) {
-            ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
+        d_new = ab_disparity(i+1,j);
+        if ( ba_roi.contains(d_new + loc) && curr_best_d != d_new) {
+          cost = ab_cost(i + 1, j)
+            + calculate_cost(loc, d_new, a, b, a_roi, b_roi,
+                             m_kernel_roi_right_p)
+            - calculate_cost(loc, d_new, a, b, a_roi, b_roi,
+                             m_kernel_roi_right_n);
+#ifdef DEBUG
+          VW_DEBUG_ASSERT(fabs(cost - calculate_cost(loc, d_new, a, b, a_roi, b_roi,
+                                                     m_kernel_roi)) < 1e-3,
+                          MathErr() << "Bug");
+#endif
+          if (cost < curr_best_cost) {
+            curr_best_cost = cost;
+            curr_best_d = d_new;
           }
         }
       }
-      if ( i < ab_disparity_in.cols() - 1 && j > 0 ) {
+      if ( i < ab_disparity.cols() - 1 && j > 0 ) {
         // Compare upper right
-        d_new = ab_disparity_in(i+1,j-1);
-        if ( ba_roi.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
-          if (cost < ab_cost_in(i,j)) {
-            ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
+        d_new = ab_disparity(i+1,j-1);
+        if ( ba_roi.contains(d_new + loc) && curr_best_d != d_new) {
+          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi, m_kernel_roi);
+          if (cost < curr_best_cost) {
+            curr_best_cost = cost;
+            curr_best_d = d_new;
           }
         }
       }
-      if ( i < ab_disparity_in.cols() - 1 && j < ab_disparity_in.rows() - 1 ) {
+      if ( i < ab_disparity.cols() - 1 && j < ab_disparity.rows() - 1 ) {
         // Compare lower right
-        d_new = ab_disparity_in(i+1,j+1);
-        if ( ba_roi.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
-          if (cost < ab_cost_in(i,j)) {
-            ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
+        d_new = ab_disparity(i+1,j+1);
+        if ( ba_roi.contains(d_new + loc) && curr_best_d != d_new) {
+          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi, m_kernel_roi);
+          if (cost < curr_best_cost) {
+            curr_best_cost = cost;
+            curr_best_d = d_new;
           }
         }
 
       }
-      if ( j < ab_disparity_in.rows() - 1 ) {
+      if ( j < ab_disparity.rows() - 1 ) {
         // Compare lower
-        d_new = ab_disparity_in(i,j+1);
-        if ( ba_roi.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
-          if (cost < ab_cost_in(i,j)) {
-            ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
+        d_new = ab_disparity(i,j+1);
+        if ( ba_roi.contains(d_new + loc) && curr_best_d != d_new) {
+          cost = ab_cost(i, j + 1)
+            + calculate_cost(loc, d_new, a, b, a_roi, b_roi, m_kernel_roi_bottom_p)
+            - calculate_cost(loc, d_new, a, b, a_roi, b_roi, m_kernel_roi_bottom_n);
+#ifdef DEBUG
+          VW_DEBUG_ASSERT(fabs(cost - calculate_cost(loc, d_new, a, b, a_roi, b_roi,
+                                                     m_kernel_roi)) < 1e-3,
+                          MathErr() << "Bug");
+#endif
+          if (cost < curr_best_cost) {
+            curr_best_cost = cost;
+            curr_best_d = d_new;
           }
         }
       }
-      if ( i > 0 && j < ab_disparity_in.rows() - 1 ) {
+      if ( i > 0 && j < ab_disparity.rows() - 1 ) {
         // Compare lower left
-        d_new = ab_disparity_in(i-1,j+1);
-        if ( ba_roi.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
-          if (cost < ab_cost_in(i,j)) {
-            ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
+        d_new = ab_disparity(i-1,j+1);
+        if ( ba_roi.contains(d_new + loc) && curr_best_d != d_new) {
+          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi, m_kernel_roi);
+          if (cost < curr_best_cost) {
+            curr_best_cost = cost;
+            curr_best_d = d_new;
           }
         }
       }
       {
         // Compare LR alternative
-        DispT d = ab_disparity_in(i,j);
+        DispT d = ab_disparity(i,j);
         d_new = -ba_disparity(i + d[0] - ba_roi.min().x(),
                               j + d[1] - ba_roi.min().y());
-        if ( ba_roi.contains(d_new + loc)) {
-          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi);
-          if (cost < ab_cost_in(i,j)) {
-            ab_cost_out(i,j) = cost;
-            ab_disparity_out(i,j) = d_new;
+        if ( ba_roi.contains(d_new + loc) && curr_best_d != d_new) {
+          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi, m_kernel_roi);
+          if (cost < curr_best_cost) {
+            curr_best_cost = cost;
+            curr_best_d = d_new;
           }
         }
       }
+
+      ab_cost(i,j) = curr_best_cost;
+      ab_disparity(i,j) = curr_best_d;
     }
   }
 }
@@ -239,4 +285,22 @@ stereo::PatchMatchBase::PatchMatchBase( BBox2i const& search_region, Vector2i co
   m_expansion +=
     Vector2i( BilinearInterpolation::pixel_buffer,
               BilinearInterpolation::pixel_buffer );
-}
+
+  m_kernel_roi = BBox2i(-m_kernel_size/2, m_kernel_size/2 + Vector2i(1,1) );
+  m_kernel_roi_left_p = BBox2i(Vector2i(m_kernel_size.x()/2, -m_kernel_size.y()/2),
+                               Vector2i(m_kernel_size.x()/2 + 1, m_kernel_size.y()/2 + 1));
+  m_kernel_roi_left_n = BBox2i(Vector2i(-m_kernel_size.x()/2 - 1, -m_kernel_size.y()/2),
+                               Vector2i(-m_kernel_size.x()/2, m_kernel_size.y()/2 + 1));
+  m_kernel_roi_right_p = BBox2i(Vector2i(-m_kernel_size.x()/2, -m_kernel_size.y()/2),
+                                Vector2i(-m_kernel_size.x()/2 + 1, m_kernel_size.y()/2 + 1));
+  m_kernel_roi_right_n = BBox2i(Vector2i(m_kernel_size.x()/2 + 1, -m_kernel_size.y()/2),
+                                Vector2i(m_kernel_size.x()/2 + 2, m_kernel_size.y()/2 + 1));
+  m_kernel_roi_bottom_p = BBox2i(Vector2i(-m_kernel_size.x()/2, -m_kernel_size.y()/2),
+                                 Vector2i(m_kernel_size.x()/2+1, -m_kernel_size.y()/2+1));
+  m_kernel_roi_bottom_n = BBox2i(Vector2i(-m_kernel_size.x()/2, m_kernel_size.y()/2 + 1),
+                                 Vector2i(m_kernel_size.x()/2+1, m_kernel_size.y()/2 + 2));
+  m_kernel_roi_top_p = BBox2i(Vector2i(-m_kernel_size.x()/2, m_kernel_size.y()/2),
+                              Vector2i(m_kernel_size.x()/2+1, m_kernel_size.y()/2 + 1));
+  m_kernel_roi_top_n = BBox2i(Vector2i(-m_kernel_size.x()/2, -m_kernel_size.y()/2 - 1),
+                              Vector2i(m_kernel_size.x()/2+1, -m_kernel_size.y()/2));
+  }
