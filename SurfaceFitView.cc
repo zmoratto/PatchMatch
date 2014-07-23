@@ -16,7 +16,7 @@ void vw::stereo::SurfaceFitViewBase::fit_2d_polynomial_surface( ImageView<PixelM
     // Build a ceres problem to fit a polynomial robustly
     ceres::Problem problem;
     for (int j = 0; j < input.rows(); j+=2) {
-      for (int i = 0; i < input.cols(); i++ ) {
+      for (int i = 0; i < input.cols(); i+=2 ) {
         if (is_valid(input(i,j)))
           problem.AddResidualBlock
             (new ceres::AutoDiffCostFunction<PolynomialSurfaceFit, 1, 9>

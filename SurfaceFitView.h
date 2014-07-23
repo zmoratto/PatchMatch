@@ -73,25 +73,28 @@ namespace vw {
       // Block rasterization section that does actual work
       typedef CropView<ImageView<pixel_type> > prerasterize_type;
       inline prerasterize_type prerasterize(BBox2i const& bbox) const {
+        BBox2i exp_bbox = bbox;
+        exp_bbox.expand(32);
+
         Matrix3x3 polynomial_h, polynomial_v;
         Vector2 xscaling, yscaling;
-        ImageView<PixelMask<Vector2i> > copy = crop(m_input, bbox);
+        ImageView<PixelMask<Vector2i> > copy = crop(m_input, exp_bbox);
         fit_2d_polynomial_surface(copy,
                                   &polynomial_h, &polynomial_v,
                                   &xscaling, &yscaling);
 
-        ImageView<float> fitted_h(bbox.width(), bbox.height()),
-          fitted_v(bbox.width(), bbox.height());
+        ImageView<float> fitted_h(exp_bbox.width(), exp_bbox.height()),
+          fitted_v(exp_bbox.width(), exp_bbox.height());
         render_polynomial_surface(polynomial_h, &fitted_h);
         render_polynomial_surface(polynomial_v, &fitted_v);
 
-        ImageView<pixel_type> smoothed_disparity(bbox.width(),bbox.height());
+        ImageView<pixel_type> smoothed_disparity(exp_bbox.width(),exp_bbox.height());
         fill(smoothed_disparity, pixel_type(Vector2f()));
         select_channel(smoothed_disparity, 0) = fitted_h;
         select_channel(smoothed_disparity, 1) = fitted_v;
 
         return prerasterize_type(smoothed_disparity,
-                                 -bbox.min().x(), -bbox.min().y(),
+                                 -exp_bbox.min().x(), -exp_bbox.min().y(),
                                  cols(), rows());
       }
 

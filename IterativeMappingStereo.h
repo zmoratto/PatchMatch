@@ -86,7 +86,7 @@ namespace vw {
             stereo::correlate(left, t_right, stereo::NullOperation(),
                               BBox2i(Vector2i(-iterations,-iterations),
                                      Vector2i(iterations, iterations)),
-                              Vector2i(1 + 2 *iterations, 1 + 2 * iterations),
+                              Vector2i(3 + 2 *iterations, 3 + 2 * iterations),
                               stereo::CROSS_CORRELATION, 2);
           combined_disparity = disparity + delta_disparity;
         }
