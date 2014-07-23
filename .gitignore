@@ -9,6 +9,9 @@ TestPatchMatch
 effect*.png
 my*.png
 patch_match
+fancy_correlate
+arctic
+profile
 test
 *.pdf
 *.mp4

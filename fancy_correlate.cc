@@ -10,6 +10,7 @@ namespace po = boost::program_options;
 
 #include <PatchMatch2.h>
 #include <SurfaceFitView.h>
+#include <IterativeMappingStereo.h>
 
 using namespace vw;
 
@@ -27,7 +28,7 @@ int main(int argc, char **argv) {
     std::string left_file_name, right_file_name, tag;
     int32 h_corr_min, h_corr_max;
     int32 v_corr_min, v_corr_max;
-    int32 iterations;
+    int32 pm_iterations, map_iterations;
     int32 cross_corr_thres = 2;
 
     po::options_description desc("Options");
@@ -36,12 +37,14 @@ int main(int argc, char **argv) {
       ("left", po::value(&left_file_name), "Explicitly specify the \"left\" input file")
       ("right", po::value(&right_file_name), "Explicitly specify the \"right\" input file")
       ("tag", po::value(&tag)->default_value("patchmatch"), "Output prefix")
-      ("iteration", po::value(&iterations)->default_value(1), "Number of patch match iterations")
+      ("pm-iteration", po::value(&pm_iterations)->default_value(1), "Number of patch match iterations")
+      ("map-iteration", po::value(&map_iterations)->default_value(1), "Number of mapping correlation iterations")
       ("h-corr-min", po::value(&h_corr_min)->default_value(-70), "Minimum horizontal disparity")
       ("h-corr-max", po::value(&h_corr_max)->default_value(105), "Maximum horizontal disparity")
       ("v-corr-min", po::value(&v_corr_min)->default_value(-25), "Minimum vertical disparity")
       ("v-corr-max", po::value(&v_corr_max)->default_value(46), "Maximum vertical disparity")
-      ;
+      ("patchmatch-only", "Only do PatchMatch stereo")
+      ("surfacefit-only", "Process only to the surface fit");
     po::positional_options_description p;
     p.add("left", 1);
     p.add("right", 1);
@@ -78,17 +81,44 @@ int main(int argc, char **argv) {
     stereo::SubtractedMean filter(15.0);
 
     // Actually invoke the rasterazation
-    {
+    if (vm.count("patchmatch-only")) {
       vw::Timer corr_timer("Correlation Time");
       block_write_image(tag + "-D.tif",
-                        stereo::surface_fit
-                        (stereo::patch_match(filter.filter(left_disk_image),
-                                             filter.filter(right_disk_image),
-                                             BBox2i(Vector2i(h_corr_min, v_corr_min),
-                                                    Vector2i(h_corr_max, v_corr_max)),
-                                             Vector2i(15, 15) /* kernel size */,
-                                             cross_corr_thres,
-                                             iterations /* number of iterations */)),
+                        stereo::patch_match(filter.filter(left_disk_image),
+                                            filter.filter(right_disk_image),
+                                            BBox2i(Vector2i(h_corr_min, v_corr_min),
+                                                   Vector2i(h_corr_max, v_corr_max)),
+                                            Vector2i(15, 15) /* kernel size */,
+                                            cross_corr_thres,
+                                            pm_iterations /* number of iterations */),
+                        TerminalProgressCallback( "", "Rendering: "));
+
+    } else if (vm.count("surfacefit-only")) {
+      vw::Timer corr_timer("Correlation Time");
+      block_write_image(tag + "-D.tif",
+                         stereo::surface_fit
+                         (stereo::patch_match(filter.filter(left_disk_image),
+                                              filter.filter(right_disk_image),
+                                              BBox2i(Vector2i(h_corr_min, v_corr_min),
+                                                     Vector2i(h_corr_max, v_corr_max)),
+                                              Vector2i(15, 15) /* kernel size */,
+                                              cross_corr_thres,
+                                              pm_iterations /* number of iterations */)),
+                        TerminalProgressCallback( "", "Rendering: "));
+    } else {
+      vw::Timer corr_timer("Correlation Time");
+      block_write_image(tag + "-D.tif",
+                        stereo::iterative_mapping_stereo
+                        (left_disk_image, right_disk_image,
+                         stereo::surface_fit
+                         (stereo::patch_match(filter.filter(left_disk_image),
+                                              filter.filter(right_disk_image),
+                                              BBox2i(Vector2i(h_corr_min, v_corr_min),
+                                                     Vector2i(h_corr_max, v_corr_max)),
+                                              Vector2i(15, 15) /* kernel size */,
+                                              cross_corr_thres,
+                                              pm_iterations /* number of iterations */)),
+                         map_iterations),
                         TerminalProgressCallback( "", "Rendering: "));
     }
 
