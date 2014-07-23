@@ -273,6 +273,34 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
   }
 }
 
+void
+stereo::PatchMatchBase::cross_corr_consistency_check(ImageView<DispT> const& ab_disparity,
+                                                     ImageView<DispT> const& ba_disparity,
+                                                     BBox2i const& ab_roi,
+                                                     BBox2i const& ba_roi,
+                                                     ImageView<PixelMask<DispT> >& ab_masked_disp) const {
+  if (m_consistency_threshold < 0) {
+    ab_masked_disp = ab_disparity;
+    return;
+  }
+
+  for ( int j = 0; j < ab_disparity.rows(); j++ ) {
+    for ( int i = 0; i < ab_disparity.cols(); i++ ) {
+      Vector2i other =
+        Vector2i(i, j) + Vector2i(ab_disparity(i, j))
+        + ab_roi.min() - ba_roi.min();
+      if (norm_2(Vector2f(ab_disparity(i, j)) +
+                 Vector2f(ba_disparity(other.x(), other.y())))  < m_consistency_threshold) {
+        // It is good
+        ab_masked_disp(i, j) = ab_disparity(i, j);
+      } else {
+        ab_masked_disp(i, j) = PixelMask<DispT>();
+      }
+    }
+  }
+
+}
+
 stereo::PatchMatchBase::PatchMatchBase( BBox2i const& search_region, Vector2i const& kernel,
                                         float consistency_threshold,
                                         int32 max_iterations) :

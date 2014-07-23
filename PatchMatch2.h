@@ -77,6 +77,12 @@ namespace vw {
                                  ImageView<DispT>& ab_disparity,
                                  ImageView<float>& ab_cost) const;
 
+      void cross_corr_consistency_check(ImageView<DispT> const& ab_disparity,
+                                        ImageView<DispT> const& ba_disparity,
+                                        BBox2i const& ab_roi,
+                                        BBox2i const& ba_roi,
+                                        ImageView<PixelMask<DispT> >& ab_masked_disp) const;
+
     public:
       PatchMatchBase( BBox2i const& bbox, Vector2i const& kernel,
                       float consistency_threshold, int32 max_iterations );
@@ -195,8 +201,8 @@ namespace vw {
                            r_disp, r_cost);
 
 #ifdef DEBUG
-          std::cout << std::setprecision(10)
-                    << "Starting cost:\t" << sum_of_pixel_values(l_cost) << std::endl;
+        std::cout << std::setprecision(10)
+                  << "Starting cost:\t" << sum_of_pixel_values(l_cost) << std::endl;
 #endif
 
         // 9. Implement iterative search.
@@ -247,25 +253,14 @@ namespace vw {
         } // end of iterations
 
 #ifdef DEBUG
-          std::cout << std::setprecision(10)
-                    << "Ending cost:\t" << sum_of_pixel_values(l_cost) << std::endl;
+        std::cout << std::setprecision(10)
+                  << "Ending cost:\t" << sum_of_pixel_values(l_cost) << std::endl;
 #endif
 
-        ImageView<pixel_type > final_disparity = l_disp;
-        if (m_consistency_threshold > 0) {
-          stereo::cross_corr_consistency_check(final_disparity,
-                                               r_disp, m_consistency_threshold, true);
-        }
-
-        /*
-        // Perform L R check
-        std::copy( l_disp.data(), l_disp.data() + prod(l_roi.size()),
-                   l_disp_f.data() );
-        transfer_disparity_mark_invalid( l_disp_f, l_roi.min() - l_exp_roi.min(),
-                                         r_disp, r_roi.min() - r_exp_roi.min() );
-        ImageView<pixel_type> output = pixel_cast<pixel_type>(l_disp);
-        mark_invalid( output, l_disp_f );
-        */
+        ImageView<pixel_type > final_disparity(l_disp.cols(), l_disp.rows());
+        cross_corr_consistency_check(l_disp, r_disp,
+                                     l_roi, r_roi,
+                                     final_disparity);
 
         return prerasterize_type(final_disparity,
                                  -bbox.min().x(), -bbox.min().y(),
