@@ -41,6 +41,8 @@ namespace vw {
       BBox2i m_kernel_roi_right_p, m_kernel_roi_right_n;
       BBox2i m_kernel_roi_top_p, m_kernel_roi_top_n;
       BBox2i m_kernel_roi_bottom_p, m_kernel_roi_bottom_n;
+      BBox2i m_kernel_roi_tl_p1, m_kernel_roi_tl_p2,
+        m_kernel_roi_tl_n1, m_kernel_roi_tl_n2;
 
       typedef Vector2i DispT;
       typedef boost::random::rand48 GenT;
@@ -63,10 +65,20 @@ namespace vw {
                                ImageView<DispT>& ab_disparity,
                                ImageView<float>& ab_cost ) const;
 
-      void keep_lowest_cost( ImageView<DispT>& dest_disp,
-                             ImageView<float>& dest_cost,
-                             ImageView<DispT> const& src_disp,
-                             ImageView<float> const& src_cost ) const;
+      // Evaluates current disparity and writes its cost .. but
+      // compares to the prior existing solution to decide if it is
+      // really needed to be evaluated.
+      void evaluate_disparity( ImageView<float> const& a, ImageView<float> const& b,
+                               BBox2i const& a_roi, BBox2i const& b_roi,
+                               ImageView<DispT> const& ab_disparity_prior,
+                               ImageView<float> const& ab_cost_prior,
+                               ImageView<DispT>& ab_disparity,
+                               ImageView<float>& ab_cost ) const;
+
+      void keep_lowest_cost( ImageView<DispT> const& src_disp,
+                             ImageView<float> const& src_cost,
+                             ImageView<DispT>& dest_disp,
+                             ImageView<float>& dest_cost ) const;
 
       // Propogates from the 3x3 neighbor hood
       void evaluate_8_connected( ImageView<float> const& a,
@@ -246,19 +258,21 @@ namespace vw {
             evaluate_disparity(l_exp, r_exp,
                                l_exp_roi - l_roi.min(),
                                r_exp_roi - l_roi.min(),
+                               //l_disp, l_cost,
                                l_disp_cpy, l_cost_cpy);
 #ifndef DISABLE_RL
             evaluate_disparity(r_exp, l_exp,
                                r_exp_roi - r_roi.min(),
                                l_exp_roi - r_roi.min(),
+                               //r_disp, r_cost,
                                r_disp_cpy, r_cost_cpy);
 #endif
 
-            keep_lowest_cost(l_disp, l_cost,
-                             l_disp_cpy, l_cost_cpy);
+            keep_lowest_cost(l_disp_cpy, l_cost_cpy,
+                             l_disp, l_cost);
 #ifndef DISABLE_RL
-            keep_lowest_cost(r_disp, r_cost,
-                             r_disp_cpy, r_cost_cpy);
+            keep_lowest_cost(r_disp_cpy, r_cost_cpy,
+                             r_disp, r_cost);
 #endif
           }
         } // end of iterations
