@@ -43,6 +43,7 @@ namespace vw {
       BBox2i m_kernel_roi_bottom_p, m_kernel_roi_bottom_n;
       BBox2i m_kernel_roi_tl_p1, m_kernel_roi_tl_p2,
         m_kernel_roi_tl_n1, m_kernel_roi_tl_n2;
+      ImageView<float> patch;
 
       typedef Vector2i DispT;
       typedef boost::random::rand48 GenT;

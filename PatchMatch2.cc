@@ -100,8 +100,11 @@ void stereo::PatchMatchBase::evaluate_disparity( ImageView<float> const& a, Imag
     DAccT disp_col = disp_row;
     for ( loc[0] = 0; loc[0] < ab_disparity.cols(); loc[0]++ ) {
       *cost_col =
-        calculate_cost( loc, *disp_col,
-                        a, b, a_roi, b_roi, m_kernel_roi);
+        sum_of_pixel_values
+        (per_pixel_filter
+         (crop( a, m_kernel_roi + loc - a_roi.min() ),
+          crop( b, m_kernel_roi + loc + *disp_col - b_roi.min() ),
+          AbsDiffFunc<float>() ));
       cost_col.next_col();
       disp_col.next_col();
     }
@@ -202,26 +205,6 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
           }
         }
       }
-      /*
-      if ( i > 0 && j > 0 && false) {
-        // Compare upper left
-        d_new = ab_disparity(i-1,j-1);
-        if ( ba_roi.contains(d_new + loc) && curr_best_d != d_new && starting_d != d_new) {
-          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi,
-                                m_kernel_roi);
-#ifdef DEBUG
-          float hold = calculate_cost(loc, d_new, a, b, a_roi, b_roi,
-                                      m_kernel_roi);
-          VW_DEBUG_ASSERT(fabs(cost - hold) < 1e-3,
-                          MathErr() << "Bug");
-#endif
-          if (cost < curr_best_cost) {
-            curr_best_cost = cost;
-            curr_best_d = d_new;
-          }
-        }
-      }
-      */
       if ( i < ab_disparity.cols() - 1) {
         // Compare right
         d_new = ab_disparity(i+1,j);
@@ -242,31 +225,6 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
           }
         }
       }
-      /*
-      if ( i < ab_disparity.cols() - 1 && j > 0 && false ) {
-        // Compare upper right
-        d_new = ab_disparity(i+1,j-1);
-        if ( ba_roi.contains(d_new + loc) && curr_best_d != d_new && starting_d != d_new) {
-          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi, m_kernel_roi);
-          if (cost < curr_best_cost) {
-            curr_best_cost = cost;
-            curr_best_d = d_new;
-          }
-        }
-      }
-      if ( i < ab_disparity.cols() - 1 && j < ab_disparity.rows() - 1 && false ) {
-        // Compare lower right
-        d_new = ab_disparity(i+1,j+1);
-        if ( ba_roi.contains(d_new + loc) && curr_best_d != d_new && starting_d != d_new) {
-          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi, m_kernel_roi);
-          if (cost < curr_best_cost) {
-            curr_best_cost = cost;
-            curr_best_d = d_new;
-          }
-        }
-
-      }
-      */
       if ( j < ab_disparity.rows() - 1 ) {
         // Compare lower
         d_new = ab_disparity(i,j+1);
@@ -285,19 +243,6 @@ void stereo::PatchMatchBase::evaluate_8_connected( ImageView<float> const& a,
           }
         }
       }
-      /*
-      if ( i > 0 && j < ab_disparity.rows() - 1 && false ) {
-        // Compare lower left
-        d_new = ab_disparity(i-1,j+1);
-        if ( ba_roi.contains(d_new + loc) && curr_best_d != d_new && starting_d != d_new) {
-          cost = calculate_cost(loc, d_new, a, b, a_roi, b_roi, m_kernel_roi);
-          if (cost < curr_best_cost) {
-            curr_best_cost = cost;
-            curr_best_d = d_new;
-          }
-        }
-      }
-      */
 #ifndef DISABLE_RL
       {
         // Compare LR alternative
