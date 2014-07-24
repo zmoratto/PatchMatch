@@ -13,6 +13,8 @@ fancy_correlate
 arctic
 profile
 test
+testing
+transform_by_disparity
 *.pdf
 *.mp4
 *.log

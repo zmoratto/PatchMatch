@@ -7,17 +7,20 @@ CXXFLAGS += -O2 -g -I$(BDIR)/include -I$(BDIR)/include/boost-1_55 -I$(VWDIR)/inc
 
 LDFLAGS += -L$(BDIR)/lib -lceres -lboost_system-mt-1_55 -lboost_thread-mt-1_55 -lboost_filesystem-mt-1_55 -lboost_program_options-mt-1_55 -L$(VWDIR)/lib -lvwCore -lvwMath -lvwFileIO -lvwImage -lvwStereo  -L$(ASPDIR)/lib  -L$(GTEST)/lib -L$(PWD) -lpthread -Wl,-rpath,$(BDIR)/lib -Wl,-rpath,$(VWDIR)/lib
 
+EXECS = fancy_correlate transform_by_disparity testing
+
 %.o : %.cc
 	$(CXX) -c -o $@ $(CXXFLAGS) $^
-
-%.o : %.cxx
-	$(CXX) -c -o $@ $(CXXFLAGS) -I$(GTEST)/include $^
-
-EXECS = fancy_correlate
 
 all: $(EXECS)
 
 fancy_correlate : fancy_correlate.o PatchMatch2.o SurfaceFitView.o
+	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
+
+transform_by_disparity : transform_by_disparity.o
+	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
+
+testing : testing.o PatchMatch2.o SurfaceFitView.o
 	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
 
 clean:
