@@ -8,7 +8,7 @@
 #include <boost/program_options.hpp>
 namespace po = boost::program_options;
 
-#include <PatchMatch2.h>
+#include <PatchMatch2NCC.h>
 #include <SurfaceFitView.h>
 #include <IterativeMappingStereo.h>
 
@@ -38,10 +38,10 @@ int main(int argc, char **argv) {
 
     pm_disparity =
       block_rasterize
-      (stereo::patch_match(filter.filter(left_disk_image),
-                           filter.filter(right_disk_image),
-                           search_region/4,
-                           Vector2i(15, 15), 2 , 16),
+      (stereo::patch_match_ncc((left_disk_image),
+                               (right_disk_image),
+                               search_region/4,
+                               Vector2i(15, 15), 2 , 16),
        Vector2i(256, 256));
     write_image("patchmatch32-D.tif", pm_disparity);
   }
@@ -80,9 +80,9 @@ int main(int argc, char **argv) {
     vw::Timer timer("Correlation Time");
     pm_disparity =
       block_rasterize
-      (stereo::patch_match(filter.filter(left16), filter.filter(right16_t),
-                           BBox2i(-4, -4, 8, 8),
-                           Vector2i(15, 15), 2, 16),
+      (stereo::patch_match_ncc((left16), (right16_t),
+                           BBox2i(-8, -8, 16, 16),
+                           Vector2i(15, 15), 2, 32),
        Vector2i(256, 256));
     write_image("pmdelta16-D.tif", pm_disparity);
     combined = sf_disparity_super + pm_disparity;
@@ -151,8 +151,8 @@ int main(int argc, char **argv) {
     vw::Timer timer("Correlation Time");
     pm_disparity =
       block_rasterize
-      (stereo::patch_match(filter.filter(left8), filter.filter(right8_t),
-                           BBox2i(-4, -4, 8, 8),
+      (stereo::patch_match_ncc((left8), (right8_t),
+                           BBox2i(-8, -8, 16, 16),
                            Vector2i(13, 13), 2, 16),
        Vector2i(256, 256));
     write_image("pmdelta8-D.tif", pm_disparity);
@@ -221,8 +221,8 @@ int main(int argc, char **argv) {
     vw::Timer timer("Correlation Time");
     pm_disparity =
       block_rasterize
-      (stereo::patch_match(filter.filter(left4), filter.filter(right4_t),
-                           BBox2i(-4, -4, 8, 8),
+      (stereo::patch_match_ncc((left4), (right4_t),
+                           BBox2i(-8, -8, 16, 16),
                            Vector2i(13, 13), 2, 16),
        Vector2i(256, 256));
     write_image("pmdelta4-D.tif", pm_disparity);
@@ -293,8 +293,8 @@ int main(int argc, char **argv) {
     vw::Timer timer("Correlation Time");
     pm_disparity =
       block_rasterize
-      (stereo::patch_match(filter.filter(left2), filter.filter(right2_t),
-                           BBox2i(-4, -4, 8, 8),
+      (stereo::patch_match_ncc((left2), (right2_t),
+                           BBox2i(-8, -8, 16, 16),
                            Vector2i(13, 13), 2, 16),
        Vector2i(256, 256));
     write_image("pmdelta2-D.tif", pm_disparity);

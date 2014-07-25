@@ -21,7 +21,7 @@ fancy_correlate : fancy_correlate.o PatchMatch2.o SurfaceFitView.o
 transform_by_disparity : transform_by_disparity.o
 	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
 
-testing : testing.o PatchMatch2.o SurfaceFitView.o
+testing : testing.o PatchMatch2NCC.o SurfaceFitView.o PatchMatch2.o
 	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
 
 clean:
