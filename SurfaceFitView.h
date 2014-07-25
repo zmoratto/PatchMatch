@@ -74,11 +74,12 @@ namespace vw {
       typedef CropView<ImageView<pixel_type> > prerasterize_type;
       inline prerasterize_type prerasterize(BBox2i const& bbox) const {
         BBox2i exp_bbox = bbox;
-        exp_bbox.expand(32);
+        exp_bbox.expand(16);
 
         Matrix3x3 polynomial_h, polynomial_v;
         Vector2 xscaling, yscaling;
-        ImageView<PixelMask<Vector2i> > copy = crop(m_input, exp_bbox);
+        ImageView<PixelMask<Vector2i> > copy =
+          crop(edge_extend(m_input), exp_bbox);
         fit_2d_polynomial_surface(copy,
                                   &polynomial_h, &polynomial_v,
                                   &xscaling, &yscaling);

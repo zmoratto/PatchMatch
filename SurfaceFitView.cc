@@ -24,7 +24,7 @@ void vw::stereo::SurfaceFitViewBase::fit_2d_polynomial_surface( ImageView<PixelM
               (input(i,j)[0],
                (double(i) + xscaling->x()) * xscaling->y(),
                (double(j) + yscaling->x()) * yscaling->y())),
-             new ceres::CauchyLoss(1),
+             new ceres::CauchyLoss(4),
              &(*output_h)(0,0));
       }
     }
@@ -49,7 +49,7 @@ void vw::stereo::SurfaceFitViewBase::fit_2d_polynomial_surface( ImageView<PixelM
               (input(i,j)[1],
                (double(i) + xscaling->x()) * xscaling->y(),
                (double(j) + yscaling->x()) * yscaling->y())),
-             new ceres::CauchyLoss(1),
+             new ceres::CauchyLoss(4),
              &(*output_v)(0,0));
       }
     }
