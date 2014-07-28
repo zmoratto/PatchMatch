@@ -8,7 +8,7 @@ CFLAGS += -DTRILIBRARY
 
 LDFLAGS += -L$(BDIR)/lib -lceres -lboost_system-mt-1_55 -lboost_thread-mt-1_55 -lboost_filesystem-mt-1_55 -lboost_program_options-mt-1_55 -L$(VWDIR)/lib -lvwCore -lvwMath -lvwFileIO -lvwImage -lvwStereo  -L$(ASPDIR)/lib -laspCore  -L$(GTEST)/lib -L$(PWD) -lpthread -Wl,-rpath,$(BDIR)/lib -Wl,-rpath,$(VWDIR)/lib -Wl,-rpath,$(ASPDIR)/lib
 
-EXECS = fancy_correlate transform_by_disparity testing
+EXECS = fancy_correlate transform_by_disparity testing testing_patchtvmin
 
 %.o : %.cc
 	$(CXX) -c -o $@ $(CXXFLAGS) $^
@@ -22,6 +22,9 @@ transform_by_disparity : transform_by_disparity.o
 	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
 
 testing : testing.o PatchMatch2NCC.o SurfaceFitView.o PatchMatch2.o
+	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
+
+testing_patchtvmin : testing_patchtvmin.o TVMin2.o PatchMatch2NCC.o SurfaceFitView.o
 	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
 
 clean:

@@ -344,6 +344,75 @@ int main(int argc, char **argv) {
     write_image("transformed2_2-TR.tif", right2_t);
   }
 
+  DiskImageView<float> left1("arctic/asp_al-L.crop.tif"), right1("arctic/asp_al-R.crop.tif");
+  sf_disparity_super =
+    2 * crop(resample(sf_disparity, 2, 2), bounding_box(left1));
+  sf_disparity = sf_disparity_super;
+  ImageView<float> right1_t;
+  {
+    vw::Timer timer("Transform Right");
+    right1_t =
+      block_rasterize
+      (transform(right1,
+                 stereo::DisparityTransform(sf_disparity)),
+       Vector2i(256, 256));
+    write_image("transformed1-L.tif", left1);
+    write_image("transformed1-R.tif", right1_t);
+  }
+  {
+    vw::Timer timer("Correlation Time");
+    pm_disparity =
+      block_rasterize
+      (stereo::patch_match_ncc((left1), (right1_t),
+                           BBox2i(-8, -8, 16, 16),
+                           Vector2i(13, 13), 2, 16),
+       Vector2i(256, 256));
+    write_image("pmdelta1-D.tif", pm_disparity);
+    combined = sf_disparity_super + pm_disparity;
+    write_image("patchmatch1-D.tif", combined);
+  }
+  {
+    vw::Timer surface_timer("Surface Fitting time");
+
+    sf_disparity = block_rasterize(stereo::surface_fit(combined),
+                                   Vector2i(64, 64));
+    write_image("surface1-D.tif", sf_disparity);
+  }
+  {
+    // The sf_dispaity will be used to fill holes in combined. However
+    // instead will reapply the patch match disparity and then blur it
+    // in.
+    //
+    // We don't do this at the beginning because the original
+    // disparity has a lot of noise.
+    for (int j = 0; j < sf_disparity.rows(); j++ ) {
+      for (int i = 0; i < sf_disparity.cols(); i++ ) {
+        if (is_valid(combined(i,j))) {
+          sf_disparity(i,j) = combined(i,j);
+        }
+      }
+    }
+
+    vw::Timer timer("Bluring");
+    blur_disparity(sf_disparity);
+    write_image("surface-blur1-D.tif", sf_disparity);
+  }
+
+  {
+    right1_t =
+      block_rasterize
+      (transform(right1,
+                 stereo::DisparityTransform(sf_disparity)),
+       Vector2i(256, 256));
+    write_image("transformed1_2-L.tif", left1);
+    write_image("transformed1_2-R.tif", right1_t);
+    right1_t =
+      block_rasterize
+      (transform(right1,
+                 stereo::DisparityTransform(combined)),
+       Vector2i(256, 256));
+    write_image("transformed1_2-TR.tif", right1_t);
+  }
 
   return 0;
 }
