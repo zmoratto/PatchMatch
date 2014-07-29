@@ -11,11 +11,13 @@ namespace po = boost::program_options;
 #include <PatchMatch2NCC.h>
 #include <SurfaceFitView.h>
 #include <TVMin2.h>
+#include <TVMin3.h>
 
 using namespace vw;
 
 int main(int argc, char **argv) {
 
+  /*
   DiskImageView<float>
     left_disk_image("arctic/asp_al-L.crop.32.tif"),
     right_disk_image("arctic/asp_al-R.crop.32.tif");
@@ -60,14 +62,37 @@ int main(int argc, char **argv) {
     write_image("surface32-D.tif", sf_disparity);
   }
 
-  // Apply TV Minimization
-  ImageView<PixelMask<Vector2f> > tv_disparity;
+  // Apply imROF (original code)
+  float lambda = 0.05;
+  int iterations = 100;
+  ImageView<float> buffer0, buffer1;
+  buffer0.set_size(sf_disparity.cols(), sf_disparity.rows());
+  buffer1.set_size(sf_disparity.cols(), sf_disparity.rows());
   {
-    vw::Timer timer("TV Minimization");
-    tv_disparity = block_rasterize(stereo::tvmin_fit(sf_disparity),
-                                   Vector2i(64, 64));
-    write_image("tvmin32-D.tif", tv_disparity);
+    ImageView<PixelMask<Vector2f> > imROF_disparity(sf_disparity.cols(), sf_disparity.rows());
+    fill(imROF_disparity, PixelMask<Vector2f>(Vector2f()));
+    for (int i = 0; i < 2; i++) {
+      buffer0 = select_channel(sf_disparity, i);
+      stereo::imROF(buffer0, lambda, iterations, buffer1);
+      select_channel(imROF_disparity, i) = buffer1;
+    }
+    write_image("imrof32-D.tif", imROF_disparity);
   }
+  */
+
+  DiskImageView<float> lenna("lenna/image_noise.png");
+  ImageView<float> lenna_norm = lenna / 255.0;
+
+  // Apply my code
+  {
+    ImageView<float > output(lenna.cols(), lenna.rows());
+    float L2 = 8.0;
+    float tau = 0.02;
+    float sigma = 1.0 / (L2 * tau);
+    stereo::ROF(lenna_norm, 8, 1000, sigma, tau, output);
+    write_image("lenna_denoise.tif", output);
+  }
+
 
   return 0;
 }

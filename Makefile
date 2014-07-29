@@ -24,7 +24,7 @@ transform_by_disparity : transform_by_disparity.o
 testing : testing.o PatchMatch2NCC.o SurfaceFitView.o PatchMatch2.o
 	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
 
-testing_patchtvmin : testing_patchtvmin.o TVMin2.o PatchMatch2NCC.o SurfaceFitView.o
+testing_patchtvmin : testing_patchtvmin.o TVMin2.o PatchMatch2NCC.o SurfaceFitView.o TVMin3.o
 	$(CXX) $^ -o $@ $(CXXFLAGS) $(LDFLAGS)
 
 clean:
