@@ -85,14 +85,27 @@ int main(int argc, char **argv) {
 
   // Apply my code
   {
+    vw::Timer timer("ROF Primal Dual");
+
     ImageView<float > output(lenna.cols(), lenna.rows());
     float L2 = 8.0;
     float tau = 0.02;
     float sigma = 1.0 / (L2 * tau);
-    stereo::ROF(lenna_norm, 8, 1000, sigma, tau, output);
+    stereo::ROF(lenna_norm, 8, 100, sigma, tau, output);
     write_image("lenna_denoise.tif", output);
   }
 
+  {
+    vw::Timer timer("Huber ROF Primal Dual");
+
+    ImageView<float > output(lenna.cols(), lenna.rows());
+    float L2 = 8.0;
+    float tau = 0.02;
+    float sigma = 1.0 / (L2 * tau);
+    float alpha = .05;
+    stereo::HuberROF(lenna_norm, 8, 100, alpha, sigma, tau, output);
+    write_image("lenna_huberROF.tif", output);
+  }
 
   return 0;
 }

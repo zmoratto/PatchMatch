@@ -17,6 +17,9 @@ namespace vw {
               float sigma, float tau, // These are gradient step sizes
               ImageView<float> & output );
     void HuberROF( ImageView<float> const& input,
+                   float lambda, int iterations,
+                   float alpha, // Huber threshold coeff,
+                   float sigma, float tau, // Gradient step sizes
                    ImageView<float> & output );
     void ROF_TVL1( ImageView<float> const& input,
                    ImageView<float> & output );
