@@ -17,7 +17,6 @@ using namespace vw;
 
 int main(int argc, char **argv) {
 
-  /*
   DiskImageView<float>
     left_disk_image("arctic/asp_al-L.crop.32.tif"),
     right_disk_image("arctic/asp_al-R.crop.32.tif");
@@ -40,8 +39,8 @@ int main(int argc, char **argv) {
   }
 
   // Fit a surface
-  ImageView<PixelMask<Vector2f> > sf_disparity;
-  {
+  ImageView<PixelMask<Vector2f> > sf_disparity = pm_disparity;
+  if (0) {
     vw::Timer surface_timer("Surface Fitting time");
 
     sf_disparity = block_rasterize(stereo::surface_fit(pm_disparity),
@@ -63,12 +62,13 @@ int main(int argc, char **argv) {
   }
 
   // Apply imROF (original code)
-  float lambda = 0.05;
-  int iterations = 100;
+  float lambda = 1;
+  int iterations = 1000;
   ImageView<float> buffer0, buffer1;
   buffer0.set_size(sf_disparity.cols(), sf_disparity.rows());
   buffer1.set_size(sf_disparity.cols(), sf_disparity.rows());
   {
+    vw::Timer timer("Original ROF");
     ImageView<PixelMask<Vector2f> > imROF_disparity(sf_disparity.cols(), sf_disparity.rows());
     fill(imROF_disparity, PixelMask<Vector2f>(Vector2f()));
     for (int i = 0; i < 2; i++) {
@@ -78,7 +78,6 @@ int main(int argc, char **argv) {
     }
     write_image("imrof32-D.tif", imROF_disparity);
   }
-  */
 
   DiskImageView<float> lenna("lenna/image_noise.png");
   ImageView<float> lenna_norm = lenna / 255.0;
@@ -87,12 +86,18 @@ int main(int argc, char **argv) {
   {
     vw::Timer timer("ROF Primal Dual");
 
-    ImageView<float > output(lenna.cols(), lenna.rows());
     float L2 = 8.0;
-    float tau = 0.02;
+    float tau = 0.04;
     float sigma = 1.0 / (L2 * tau);
-    stereo::ROF(lenna_norm, 8, 100, sigma, tau, output);
-    write_image("lenna_denoise.tif", output);
+    ImageView<PixelMask<Vector2f> > imROF_disparity(sf_disparity.cols(), sf_disparity.rows());
+    fill(imROF_disparity, PixelMask<Vector2f>(Vector2f()));
+    for (int i = 0; i < 2; i++) {
+      buffer0 = select_channel(sf_disparity, i);
+      stereo::ROF(buffer0, lambda, iterations, sigma, tau, buffer1);
+      select_channel(imROF_disparity, i) = buffer1;
+    }
+
+    write_image("rofpd32-D.tif", imROF_disparity);
   }
 
   {
@@ -100,11 +105,18 @@ int main(int argc, char **argv) {
 
     ImageView<float > output(lenna.cols(), lenna.rows());
     float L2 = 8.0;
-    float tau = 0.02;
+    float tau = 0.04;
     float sigma = 1.0 / (L2 * tau);
-    float alpha = .05;
-    stereo::HuberROF(lenna_norm, 8, 100, alpha, sigma, tau, output);
-    write_image("lenna_huberROF.tif", output);
+    float alpha = .001;
+    ImageView<PixelMask<Vector2f> > imROF_disparity(sf_disparity.cols(), sf_disparity.rows());
+    fill(imROF_disparity, PixelMask<Vector2f>(Vector2f()));
+    for (int i = 0; i < 2; i++) {
+      buffer0 = select_channel(sf_disparity, i);
+      stereo::HuberROF(buffer0, lambda, iterations, alpha, sigma, tau, buffer1);
+      select_channel(imROF_disparity, i) = buffer1;
+    }
+
+    write_image("huberrof32-D.tif", imROF_disparity);
   }
 
   return 0;
