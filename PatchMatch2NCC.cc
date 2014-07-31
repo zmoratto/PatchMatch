@@ -10,21 +10,6 @@
 
 using namespace vw;
 
-template <class ImageT, class TransformT>
-TransformView<InterpolationView<ImageT, BilinearInterpolation>, TransformT>
-inline transform_no_edge( ImageViewBase<ImageT> const& v,
-                          TransformT const& transform_func ) {
-  return TransformView<InterpolationView<ImageT, BilinearInterpolation>, TransformT>( InterpolationView<ImageT, BilinearInterpolation>( v.impl() ), transform_func );
-}
-
-template <class PixelT>
-struct AbsDiffFunc : public vw::ReturnFixedType<PixelT> {
-  inline PixelT operator()( PixelT const& a, PixelT const& b ) const {
-    return fabs( a - b );
-  }
-};
-
-
 void
 stereo::PMNCCBase::add_uniform_noise(BBox2i const& range_of_noise_to_add, // Inclusive
                                           BBox2i const& max_search_range, // Inclusive

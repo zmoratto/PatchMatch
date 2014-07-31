@@ -12,6 +12,14 @@
 namespace vw {
   namespace stereo {
 
+    void divergence( ImageView<float> const& input_x,
+                     ImageView<float> const& input_y,
+                     ImageView<float> & output );
+
+    void gradient( ImageView<float> const& input,
+                   ImageView<float> & output_x,
+                   ImageView<float> & output_y);
+
     void ROF( ImageView<float> const& input,
               float lambda, int iterations,
               float sigma, float tau, // These are gradient step sizes

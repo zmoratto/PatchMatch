@@ -9,6 +9,7 @@
 namespace po = boost::program_options;
 
 #include <PatchMatch2NCC.h>
+#include <PatchMatch2Heise.h>
 #include <SurfaceFitView.h>
 #include <TVMin2.h>
 #include <TVMin3.h>
@@ -30,10 +31,10 @@ int main(int argc, char **argv) {
 
     pm_disparity =
       block_rasterize
-      (stereo::patch_match_ncc((left_disk_image),
-                               (right_disk_image),
-                               search_region/4,
-                               Vector2i(15, 15), 2 , 1),
+      (stereo::patch_match_heise((left_disk_image),
+                                 (right_disk_image),
+                                 search_region/4,
+                                 Vector2i(15, 15), 2 , 1),
        Vector2i(256, 256));
     write_image("patchmatch32-D.tif", pm_disparity);
   }
