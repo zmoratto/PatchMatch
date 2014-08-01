@@ -2,6 +2,7 @@
 #define __VW_STEREO_PATCHMATCH2HEISE_H__
 
 #include <PatchMatch2NCC.h>
+#include <TVMin3.h>
 
 #ifdef DEBUG
 #include <vw/FileIO.h>
@@ -18,17 +19,22 @@ namespace vw {
                                       ImageView<DispT> const& ba_disparity,
                                       BBox2i const& ba_roi,
                                       ImageView<DispT> const& ab_disparity_smooth,
+                                      float theta, // defines how close we need to be to smooth
+                                      float lambda, // thumb on the scale to support E_data
                                       ImageView<DispT>& ab_disparity,
                                       ImageView<float>& ab_cost) const;
 
       void evaluate_disparity_smooth( ImageView<float> const& a, ImageView<float> const& b,
                                       BBox2i const& a_roi, BBox2i const& b_roi,
                                       ImageView<DispT> const& ab_disparity_smooth,
-                                      ImageView<DispT>& ab_disparity,
+                                      ImageView<DispT> const& ab_disparity,
+                                      float theta, // defines how close we need to be to smooth
+                                      float lambda, // thumb on the scale to support E_data
                                       ImageView<float>& ab_cost ) const;
 
       void solve_smooth(ImageView<DispT> const& ab_disparity_noisy,
                         ImageView<float> const& ab_weight,
+                        float theta_sigma_d,
                         ImageView<float> & p_x_dx, // Holding buffers for the hidden variable
                         ImageView<float> & p_x_dy,
                         ImageView<float> & p_y_dx,
@@ -124,7 +130,7 @@ namespace vw {
         std::cout << "L_EXP_ROI: " << l_exp_roi << std::endl;
         std::cout << "R_EXP_ROI: " << r_exp_roi << std::endl;
         std::ostringstream prefix;
-        prefix << bbox.min()[0] << "_" << bbox.min()[1];
+        prefix << bbox.min()[0] << "_" << bbox.min()[1] << "_";
 #endif
 
         // 6. Allocate buffers
@@ -168,25 +174,55 @@ namespace vw {
 #ifdef DEBUG
         write_image(prefix.str() + "l_weight.tif", l_weight);
         write_image(prefix.str() + "r_weight.tif", r_weight);
-        exit(1);
 #endif
 
-        for (int iteration = 0; iteration < m_max_iterations; iteration++ ) {
-          // Perform smoothing step
-          solve_smooth(l_disp, l_weight,
-                       l_p_x_dx, l_p_x_dy, l_p_y_dx, l_p_y_dy,
-                       l_disp_smooth);
-          solve_smooth(r_disp, r_weight,
-                       r_p_x_dx, r_p_x_dy, r_p_y_dx, r_p_y_dy,
-                       r_disp_smooth);
+        // This is a combination of theta [0, 1] and the disparity
+        // sigma_d. The paper says it should vary between 0 and 50 /
+        // max_disp.
+        float theta = 0;
+        // Lambda is essentially how important the data term is over
+        // being smooth.
+        float lambda = 500;
+        float sigma_d = lambda / norm_2(Vector2f(m_search_region.size()));
+        std::cout << "Lambda: " << lambda << " Sigma_d: " << sigma_d << std::endl;
 
-          // Perform an evaluation
+        // Initialize the l_p_x, and l_p_y
+        stereo::gradient(select_channel(l_disp, 0), l_p_x_dx, l_p_x_dy);
+        stereo::gradient(select_channel(l_disp, 1), l_p_y_dx, l_p_y_dy);
+        stereo::gradient(select_channel(r_disp, 0), r_p_x_dx, r_p_x_dy);
+        stereo::gradient(select_channel(r_disp, 1), r_p_y_dx, r_p_y_dy);
+
+          // Re-evaluate the cost since smooth has been refined.
+        evaluate_disparity_smooth(l_exp, r_exp,
+                                  l_exp_roi - l_roi.min(),
+                                  r_exp_roi - l_roi.min(),
+                                  l_disp_smooth, l_disp,
+                                  theta, lambda,
+                                  l_cost);
+#ifndef DISABLE_RL
+        evaluate_disparity_smooth(r_exp, l_exp,
+                                  r_exp_roi - r_roi.min(),
+                                  l_exp_roi - r_roi.min(),
+                                  r_disp_smooth, r_disp,
+                                  theta, lambda,
+                                  r_cost);
+#endif
+        std::cout << prefix.str() << " starting cost: " << sum_of_pixel_values(l_cost) << std::endl;
+
+        for (int iteration = 0; iteration < m_max_iterations; iteration++ ) {
+#ifdef DEBUG
+          std::ostringstream iprefix;
+          iprefix << prefix.str() << iteration << "_";
+#endif
+
+          // Propagate the best
           evaluate_8_connect_smooth(l_exp, r_exp,
                                     l_exp_roi - l_roi.min(),
                                     r_exp_roi - l_roi.min(),
                                     r_disp,
                                     r_roi - l_roi.min(),
                                     l_disp_smooth,
+                                    theta, lambda,
                                     l_disp, l_cost);
           evaluate_8_connect_smooth(r_exp, l_exp,
                                     r_exp_roi - r_roi.min(),
@@ -194,7 +230,52 @@ namespace vw {
                                     l_disp,
                                     l_roi - r_roi.min(),
                                     r_disp_smooth,
+                                    theta, lambda,
                                     r_disp, r_cost);
+
+#ifdef DEBUG
+          std::cout << iprefix.str() << " cost after 8 conn: " << sum_of_pixel_values(l_cost) << std::endl;
+          write_image(iprefix.str() + "l-D.tif", pixel_cast<pixel_type>(l_disp));
+          write_image(iprefix.str() + "r-D.tif", pixel_cast<pixel_type>(r_disp));
+#endif
+
+          // Increase the theta requirement between smooth and
+          // non-smooth
+          theta += 1.0 / float(m_max_iterations - 1);
+          std::cout << "Theta is now: " << theta << std::endl;
+
+          // Perform smoothing step
+          solve_smooth(l_disp, l_weight,
+                       theta * sigma_d,
+                       l_p_x_dx, l_p_x_dy, l_p_y_dx, l_p_y_dy,
+                       l_disp_smooth);
+          solve_smooth(r_disp, r_weight,
+                       theta * sigma_d,
+                       r_p_x_dx, r_p_x_dy, r_p_y_dx, r_p_y_dy,
+                       r_disp_smooth);
+
+#ifdef DEBUG
+          write_image(iprefix.str() + "lsmooth-D.tif", pixel_cast<pixel_type >(l_disp_smooth));
+          write_image(iprefix.str() + "rsmooth-D.tif", pixel_cast<pixel_type >(r_disp_smooth));
+#endif
+
+          // Re-evaluate the cost since smooth has been refined.
+          evaluate_disparity_smooth(l_exp, r_exp,
+                                    l_exp_roi - l_roi.min(),
+                                    r_exp_roi - l_roi.min(),
+                                    l_disp_smooth, l_disp,
+                                    theta, lambda,
+                                    l_cost);
+#ifndef DISABLE_RL
+          evaluate_disparity_smooth(r_exp, l_exp,
+                                    r_exp_roi - r_roi.min(),
+                                    l_exp_roi - r_roi.min(),
+                                    r_disp_smooth, r_disp,
+                                    theta, lambda,
+                                    r_cost);
+#endif
+
+          std::cout << iprefix.str() << " cost after smooth: " << sum_of_pixel_values(l_cost) << std::endl;
 
           { // Add noise
             l_disp_cpy = copy(l_disp);
@@ -216,14 +297,16 @@ namespace vw {
             evaluate_disparity_smooth(l_exp, r_exp,
                                       l_exp_roi - l_roi.min(),
                                       r_exp_roi - l_roi.min(),
-                                      l_disp_smooth,
-                                      l_disp_cpy, l_cost_cpy);
+                                      l_disp_smooth, l_disp_cpy,
+                                      theta, lambda,
+                                      l_cost_cpy);
 #ifndef DISABLE_RL
             evaluate_disparity_smooth(r_exp, l_exp,
                                       r_exp_roi - r_roi.min(),
                                       l_exp_roi - r_roi.min(),
-                                      r_disp_smooth,
-                                      r_disp_cpy, r_cost_cpy);
+                                      r_disp_smooth, r_disp_cpy,
+                                      theta, lambda,
+                                      r_cost_cpy);
 #endif
 
             keep_lowest_cost(l_disp_cpy, l_cost_cpy,
@@ -233,6 +316,12 @@ namespace vw {
                              r_disp, r_cost);
 #endif
           }
+
+#ifdef DEBUG
+          std::cout << iprefix.str() << " cost after add noise[: " << sum_of_pixel_values(l_cost) << std::endl;
+          write_image(iprefix.str() + "ladd-D.tif", pixel_cast<pixel_type>(l_disp));
+          write_image(iprefix.str() + "radd-D.tif", pixel_cast<pixel_type>(r_disp));
+#endif
         }
 
         return prerasterize_type(l_disp,

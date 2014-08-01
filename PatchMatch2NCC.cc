@@ -176,6 +176,7 @@ void stereo::PMNCCBase::evaluate_8_connected( ImageView<float> const& a,
       ab_disparity(i,j) = curr_best_d;
     }
   }
+#undef EVALUATE_AND_KEEP_BEST
 }
 
 void

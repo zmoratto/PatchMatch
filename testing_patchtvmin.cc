@@ -34,9 +34,10 @@ int main(int argc, char **argv) {
       (stereo::patch_match_heise((left_disk_image),
                                  (right_disk_image),
                                  search_region/4,
-                                 Vector2i(15, 15), 2 , 1),
+                                 Vector2i(15, 15), 2 , 10),
        Vector2i(256, 256));
     write_image("patchmatch32-D.tif", pm_disparity);
+    exit(1);
   }
 
   // Fit a surface
