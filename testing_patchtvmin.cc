@@ -19,8 +19,8 @@ using namespace vw;
 int main(int argc, char **argv) {
 
   DiskImageView<float>
-    left_disk_image("arctic/asp_al-L.crop.32.tif"),
-    right_disk_image("arctic/asp_al-R.crop.32.tif");
+    left_disk_image("arctic/asp_al-L.crop.16.tif"),
+    right_disk_image("arctic/asp_al-R.crop.16.tif");
   BBox2i search_region(Vector2i(-70,-25),
                        Vector2i(105,46));
 
@@ -33,10 +33,12 @@ int main(int argc, char **argv) {
       block_rasterize
       (stereo::patch_match_heise((left_disk_image),
                                  (right_disk_image),
-                                 search_region/4,
+                                 search_region/2,
                                  Vector2i(15, 15), 2 , 10),
        Vector2i(256, 256));
-    write_image("patchmatch32-D.tif", pm_disparity);
+    write_image("patchmatch16-D.tif", pm_disparity);
+    write_image("patchmatch16-L.tif", left_disk_image);
+    write_image("patchmatch16-R.tif", right_disk_image);
     exit(1);
   }
 
@@ -65,7 +67,7 @@ int main(int argc, char **argv) {
 
   // Apply imROF (original code)
   float lambda = 1;
-  int iterations = 1000;
+  int iterations = 2000;
   ImageView<float> buffer0, buffer1;
   buffer0.set_size(sf_disparity.cols(), sf_disparity.rows());
   buffer1.set_size(sf_disparity.cols(), sf_disparity.rows());
@@ -119,6 +121,24 @@ int main(int argc, char **argv) {
     }
 
     write_image("huberrof32-D.tif", imROF_disparity);
+  }
+
+  {
+    vw::Timer timer("ROF TV L1 Primal Dual");
+
+    ImageView<float > output(lenna.cols(), lenna.rows());
+    float L2 = 8.0;
+    float tau = 0.04;
+    float sigma = 1.0 / (L2 * tau);
+    ImageView<PixelMask<Vector2f> > imROF_disparity(sf_disparity.cols(), sf_disparity.rows());
+    fill(imROF_disparity, PixelMask<Vector2f>(Vector2f()));
+    for (int i = 0; i < 2; i++) {
+      buffer0 = select_channel(sf_disparity, i);
+      stereo::ROF_TVL1(buffer0, lambda, iterations, sigma, tau, buffer1);
+      select_channel(imROF_disparity, i) = buffer1;
+    }
+
+    write_image("tvl132-D.tif", imROF_disparity);
   }
 
   return 0;

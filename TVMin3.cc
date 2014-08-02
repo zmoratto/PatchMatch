@@ -134,3 +134,51 @@ void stereo::HuberROF( ImageView<float> const& input,
     output /= (1 + tau * lambda);
   }
 }
+
+void stereo::ROF_TVL1( ImageView<float> const& input,
+                       float lambda, int iterations,
+                       float sigma, float tau, // Gradient step sizes
+                       ImageView<float> & output ) {
+  // Allocate space for p, our hidden variable and u our output.
+  ImageView<float> p_x(input.cols(), input.rows()),
+    p_y(input.cols(), input.rows());
+  output.set_size(input.cols(), input.rows());
+  output = copy(input);
+  ImageView<float> grad_u_x, grad_u_y;
+  ImageView<float> div_p, q;
+  stereo::gradient(output, p_x, p_y);
+  q = copy(input);
+  for ( int i = 0; i < iterations; i++ ) {
+    // Eqn 185
+    gradient(output, grad_u_x, grad_u_y);
+    p_x += sigma * grad_u_x;
+    p_y += sigma * grad_u_y;
+
+    // Eqn 186
+    for (int j = 0; j < p_x.rows(); j++ ) {
+      for (int i = 0; i < p_x.cols(); i++ ) {
+        float mag =
+          std::max(1.0, sqrt(p_x(i,j)*p_x(i,j) +
+                             p_y(i,j)*p_y(i,j)));
+        p_x(i,j) /= mag;
+        p_y(i,j) /= mag;
+      }
+    }
+
+    // Eqn 188
+    q += sigma * lambda * (output - input);
+
+    // Eqn 189
+    for (int j = 0; j < q.rows(); j++ ) {
+      for (int i = 0; i < q.cols(); i++ ) {
+        float mag =
+          std::max(1.0, fabs(q(i,j)));
+        q(i,j) /= mag;
+      }
+    }
+
+    // Eqn 191
+    stereo::divergence(p_x, p_y, div_p);
+    output += tau * div_p - tau * lambda * q;
+  }
+}

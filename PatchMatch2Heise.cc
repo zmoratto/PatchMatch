@@ -168,7 +168,8 @@ void stereo::PMHeiseBase::solve_smooth(ImageView<DispT> const& ab_disparity_nois
   const float huber_coeff = 0.001;
 
   // This implements equations 29 and 30 in the heise paper
-  const int MAX_ITERATIONS = 101;
+  //  const int MAX_ITERATIONS = 101;
+  const int MAX_ITERATIONS = 41;
 
   ImageView<float> buffer0(ab_disparity_noisy.cols(),
                            ab_disparity_noisy.rows()),
@@ -210,4 +211,15 @@ void stereo::PMHeiseBase::solve_gradient_weight(ImageView<float> const& a_exp,
   weight =
     crop(per_pixel_filter(-1 * constant * pow(sqrt(delx*delx + dely * dely), power), ExponentFunc()),
          a_roi - a_exp_roi.min());
+}
+
+void stereo::PMHeiseBase::copy_valid_pixels(ImageView<PixelMask<Vector2i> > const& input,
+                                            ImageView<Vector2i> & output) const {
+  for (int j = 0; j < input.rows(); j++ ) {
+    for (int i = 0; i < input.cols(); i++ ) {
+      if (is_valid(input(i,j))) {
+        output(i,j) = input(i,j).child();
+      }
+    }
+  }
 }

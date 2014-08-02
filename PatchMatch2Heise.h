@@ -3,6 +3,8 @@
 
 #include <PatchMatch2NCC.h>
 #include <TVMin3.h>
+#include <SurfaceFitView.h>
+#include <vw/Image/MaskViews.h>
 
 #ifdef DEBUG
 #include <vw/FileIO.h>
@@ -45,6 +47,9 @@ namespace vw {
                                  BBox2i const& a_exp_roi,
                                  BBox2i const& a_roi,
                                  ImageView<float> & weight) const;
+
+      void copy_valid_pixels(ImageView<PixelMask<Vector2i> > const& input,
+                             ImageView<Vector2i> & output) const;
 
     public:
       PMHeiseBase(BBox2i const& bbox, Vector2i const& kernel,
@@ -161,15 +166,15 @@ namespace vw {
         // 7. Write uniform noise
         add_uniform_noise(m_search_region, m_search_region,
                           r_roi - l_roi.min(), l_disp);
-#ifndef DISABLE_RL
         add_uniform_noise(m_search_region_rl, m_search_region_rl,
                           l_roi - r_roi.min(), r_disp );
-#endif
 
         // Solve for the weights .. ie deweight the smoothness
         // constraint on color transitions.
         solve_gradient_weight(l_exp, l_exp_roi, l_roi, l_weight);
         solve_gradient_weight(r_exp, r_exp_roi, r_roi, r_weight);
+        fill(l_weight, 1);
+        fill(r_weight, 1);
 
 #ifdef DEBUG
         write_image(prefix.str() + "l_weight.tif", l_weight);
@@ -239,17 +244,45 @@ namespace vw {
           write_image(iprefix.str() + "r-D.tif", pixel_cast<pixel_type>(r_disp));
 #endif
 
+          // Start creating a filter view of l_disp and r_disp so they
+          // can be smoothed without most of the outliers.
+          ImageView<pixel_type > l_filtered(l_disp.cols(), l_disp.rows()),
+            r_filtered(r_disp.cols(), r_disp.rows());
+          cross_corr_consistency_check(l_disp, r_disp,
+                                       l_roi, r_roi,
+                                       l_filtered);
+          cross_corr_consistency_check(r_disp, l_disp,
+                                       r_roi, l_roi,
+                                       r_filtered);
+
+          // Solve for surface fitted disparity
+          ImageView<Vector2i>
+            l_filled = pixel_cast<Vector2i>(apply_mask(block_rasterize(stereo::surface_fit(l_filtered),
+                                                                       Vector2i(64,64), 1))),
+            r_filled = pixel_cast<Vector2i>(apply_mask(block_rasterize(stereo::surface_fit(r_filtered),
+                                                                       Vector2i(64,64), 1)));
+
+          // Move back in our actual measurements
+          copy_valid_pixels(l_filtered, l_filled);
+          copy_valid_pixels(r_filtered, r_filled);
+
+#ifdef DEBUG
+          write_image(iprefix.str() + "lfilled-D.tif", pixel_cast<pixel_type >(l_filled));
+          write_image(iprefix.str() + "rfilled-D.tif", pixel_cast<pixel_type >(r_filled));
+#endif
+
           // Increase the theta requirement between smooth and
           // non-smooth
           theta += 1.0 / float(m_max_iterations - 1);
+          //theta = exp(iteration - m_max_iterations + 1);
           std::cout << "Theta is now: " << theta << std::endl;
 
           // Perform smoothing step
-          solve_smooth(l_disp, l_weight,
+          solve_smooth(l_filled, l_weight,
                        theta * sigma_d,
                        l_p_x_dx, l_p_x_dy, l_p_y_dx, l_p_y_dy,
                        l_disp_smooth);
-          solve_smooth(r_disp, r_weight,
+          solve_smooth(r_filled, r_weight,
                        theta * sigma_d,
                        r_p_x_dx, r_p_x_dy, r_p_y_dx, r_p_y_dy,
                        r_disp_smooth);
@@ -266,14 +299,12 @@ namespace vw {
                                     l_disp_smooth, l_disp,
                                     theta, lambda,
                                     l_cost);
-#ifndef DISABLE_RL
           evaluate_disparity_smooth(r_exp, l_exp,
                                     r_exp_roi - r_roi.min(),
                                     l_exp_roi - r_roi.min(),
                                     r_disp_smooth, r_disp,
                                     theta, lambda,
                                     r_cost);
-#endif
 
           std::cout << iprefix.str() << " cost after smooth: " << sum_of_pixel_values(l_cost) << std::endl;
 
@@ -288,11 +319,9 @@ namespace vw {
             add_uniform_noise(BBox2f(-search_size_half, search_size_half),
                               m_search_region,
                               r_roi - l_roi.min(), l_disp_cpy);
-#ifndef DISABLE_RL
             add_uniform_noise(BBox2f(-search_size_half, search_size_half),
                               m_search_region_rl,
                               l_roi - r_roi.min(), r_disp_cpy);
-#endif
 
             evaluate_disparity_smooth(l_exp, r_exp,
                                       l_exp_roi - l_roi.min(),
@@ -300,21 +329,17 @@ namespace vw {
                                       l_disp_smooth, l_disp_cpy,
                                       theta, lambda,
                                       l_cost_cpy);
-#ifndef DISABLE_RL
             evaluate_disparity_smooth(r_exp, l_exp,
                                       r_exp_roi - r_roi.min(),
                                       l_exp_roi - r_roi.min(),
                                       r_disp_smooth, r_disp_cpy,
                                       theta, lambda,
                                       r_cost_cpy);
-#endif
 
             keep_lowest_cost(l_disp_cpy, l_cost_cpy,
                              l_disp, l_cost);
-#ifndef DISABLE_RL
             keep_lowest_cost(r_disp_cpy, r_cost_cpy,
                              r_disp, r_cost);
-#endif
           }
 
 #ifdef DEBUG
@@ -324,7 +349,12 @@ namespace vw {
 #endif
         }
 
-        return prerasterize_type(l_disp,
+        ImageView<pixel_type > final_disparity(l_disp.cols(), l_disp.rows());
+        cross_corr_consistency_check(l_disp, r_disp,
+                                     l_roi, r_roi,
+                                     final_disparity);
+
+        return prerasterize_type(final_disparity,
                                  -bbox.min().x(), -bbox.min().y(),
                                  cols(), rows());
       }

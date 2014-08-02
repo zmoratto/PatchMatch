@@ -30,6 +30,8 @@ namespace vw {
                    float sigma, float tau, // Gradient step sizes
                    ImageView<float> & output );
     void ROF_TVL1( ImageView<float> const& input,
+                   float lambda, int iterations,
+                   float sigma, float tau, // Gradient step sizes
                    ImageView<float> & output );
   }
 }
