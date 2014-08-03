@@ -147,10 +147,12 @@ void PMHuberROF( ImageView<float> const& input,
     output += tau * (theta_sigma_d * input + weight * div_p);
     output /= (1 + tau * theta_sigma_d);
 
+#ifdef DEBUG
     // DEBUG, determine are we actually reducing our own cost?
     if (!(i % 20)) {
       std::cout << i << " -> energy -> " << calc_energy(output, input, weight, theta_sigma_d) << std::endl;
     }
+#endif
   }
 }
 

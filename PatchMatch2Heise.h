@@ -5,6 +5,7 @@
 #include <TVMin3.h>
 #include <SurfaceFitView.h>
 #include <vw/Image/MaskViews.h>
+#include <vw/Image/BlockRasterize.h>
 
 #ifdef DEBUG
 #include <vw/FileIO.h>
@@ -186,7 +187,9 @@ namespace vw {
         // being smooth.
         float lambda = 200000 / prod(m_kernel_size);
         float sigma_d = lambda / norm_2(Vector2f(m_search_region.size()));
+#ifdef DEBUG
         std::cout << "Lambda: " << lambda << " Sigma_d: " << sigma_d << std::endl;
+#endif
 
         // Initialize the l_p_x, and l_p_y
         stereo::gradient(select_channel(l_disp, 0), l_p_x_dx, l_p_x_dy);
@@ -201,15 +204,16 @@ namespace vw {
                                   l_disp_smooth, l_disp,
                                   theta, lambda,
                                   l_cost);
-#ifndef DISABLE_RL
         evaluate_disparity_smooth(r_exp, l_exp,
                                   r_exp_roi - r_roi.min(),
                                   l_exp_roi - r_roi.min(),
                                   r_disp_smooth, r_disp,
                                   theta, lambda,
                                   r_cost);
+#ifdef DEBUG
+        std::cout << prefix.str() << " starting cost: "
+                  << sum_of_pixel_values(l_cost) << std::endl;
 #endif
-        std::cout << prefix.str() << " starting cost: " << sum_of_pixel_values(l_cost) << std::endl;
 
         for (int iteration = 0; iteration < m_max_iterations; iteration++ ) {
 #ifdef DEBUG
@@ -302,8 +306,10 @@ namespace vw {
                                     r_disp_smooth, r_disp,
                                     theta, lambda,
                                     r_cost);
-
-          std::cout << iprefix.str() << " cost after smooth: " << sum_of_pixel_values(l_cost) << std::endl;
+#ifdef DEBUG
+          std::cout << iprefix.str() << " cost after smooth: "
+                    << sum_of_pixel_values(l_cost) << std::endl;
+#endif
 
           { // Add noise
             l_disp_cpy = copy(l_disp);

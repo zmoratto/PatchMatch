@@ -8,7 +8,7 @@
 #include <boost/program_options.hpp>
 namespace po = boost::program_options;
 
-#include <PatchMatch2.h>
+#include <PatchMatch2Heise.h>
 #include <SurfaceFitView.h>
 #include <IterativeMappingStereo.h>
 
@@ -19,7 +19,7 @@ void block_write_image( const std::string &filename,
                         vw::ImageViewBase<ImageT> const& image,
                         vw::ProgressCallback const& progress_callback = vw::ProgressCallback::dummy_instance() ) {
   boost::scoped_ptr<vw::DiskImageResourceGDAL> rsrc
-    (new vw::DiskImageResourceGDAL(filename, image.impl().format(), Vector2i(256,256)));
+    (new vw::DiskImageResourceGDAL(filename, image.impl().format(), Vector2i(512,512)));
   vw::block_write_image( *rsrc, image.impl(), progress_callback );
 }
 
@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
       ("left", po::value(&left_file_name), "Explicitly specify the \"left\" input file")
       ("right", po::value(&right_file_name), "Explicitly specify the \"right\" input file")
       ("tag", po::value(&tag)->default_value("patchmatch"), "Output prefix")
-      ("pm-iteration", po::value(&pm_iterations)->default_value(1), "Number of patch match iterations")
+      ("pm-iteration", po::value(&pm_iterations)->default_value(6), "Number of patch match iterations")
       ("map-iteration", po::value(&map_iterations)->default_value(1), "Number of mapping correlation iterations")
       ("h-corr-min", po::value(&h_corr_min)->default_value(-70), "Minimum horizontal disparity")
       ("h-corr-max", po::value(&h_corr_max)->default_value(105), "Maximum horizontal disparity")
@@ -75,35 +75,30 @@ int main(int argc, char **argv) {
     DiskImageView<float> left_disk_image(left_file_name );
     DiskImageView<float> right_disk_image(right_file_name );
 
-    // The satellite images very like have different intensity
-    // ranges. So in order for abs difference cost metric to succeed
-    // with PatchMatch .. we need to subtract off the local mean.
-    stereo::SubtractedMean filter(15.0);
-
     // Actually invoke the rasterazation
     if (vm.count("patchmatch-only")) {
       vw::Timer corr_timer("Correlation Time");
       block_write_image(tag + "-D.tif",
-                        stereo::patch_match(filter.filter(left_disk_image),
-                                            filter.filter(right_disk_image),
-                                            BBox2i(Vector2i(h_corr_min, v_corr_min),
-                                                   Vector2i(h_corr_max, v_corr_max)),
-                                            Vector2i(15, 15) /* kernel size */,
-                                            cross_corr_thres,
-                                            pm_iterations /* number of iterations */),
+                        stereo::patch_match_heise((left_disk_image),
+                                                  (right_disk_image),
+                                                  BBox2i(Vector2i(h_corr_min, v_corr_min),
+                                                         Vector2i(h_corr_max, v_corr_max)),
+                                                  Vector2i(15, 15) /* kernel size */,
+                                                  cross_corr_thres,
+                                                  pm_iterations /* number of iterations */),
                         TerminalProgressCallback( "", "Rendering: "));
 
     } else if (vm.count("surfacefit-only")) {
       vw::Timer corr_timer("Correlation Time");
       block_write_image(tag + "-D.tif",
-                         stereo::surface_fit
-                         (stereo::patch_match(filter.filter(left_disk_image),
-                                              filter.filter(right_disk_image),
-                                              BBox2i(Vector2i(h_corr_min, v_corr_min),
-                                                     Vector2i(h_corr_max, v_corr_max)),
-                                              Vector2i(15, 15) /* kernel size */,
-                                              cross_corr_thres,
-                                              pm_iterations /* number of iterations */)),
+                        stereo::surface_fit
+                        (stereo::patch_match_heise((left_disk_image),
+                                                   (right_disk_image),
+                                                   BBox2i(Vector2i(h_corr_min, v_corr_min),
+                                                          Vector2i(h_corr_max, v_corr_max)),
+                                                   Vector2i(15, 15) /* kernel size */,
+                                                   cross_corr_thres,
+                                                   pm_iterations /* number of iterations */)),
                         TerminalProgressCallback( "", "Rendering: "));
     } else {
       vw::Timer corr_timer("Correlation Time");
@@ -111,13 +106,13 @@ int main(int argc, char **argv) {
                         stereo::iterative_mapping_stereo
                         (left_disk_image, right_disk_image,
                          stereo::surface_fit
-                         (stereo::patch_match(filter.filter(left_disk_image),
-                                              filter.filter(right_disk_image),
-                                              BBox2i(Vector2i(h_corr_min, v_corr_min),
-                                                     Vector2i(h_corr_max, v_corr_max)),
-                                              Vector2i(15, 15) /* kernel size */,
-                                              cross_corr_thres,
-                                              pm_iterations /* number of iterations */)),
+                         (stereo::patch_match_heise((left_disk_image),
+                                                    (right_disk_image),
+                                                    BBox2i(Vector2i(h_corr_min, v_corr_min),
+                                                           Vector2i(h_corr_max, v_corr_max)),
+                                                    Vector2i(15, 15) /* kernel size */,
+                                                    cross_corr_thres,
+                                                    pm_iterations /* number of iterations */)),
                          map_iterations),
                         TerminalProgressCallback( "", "Rendering: "));
     }
