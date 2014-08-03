@@ -30,13 +30,12 @@ int main(int argc, char **argv) {
     vw::Timer corr_timer("Correlation Time");
 
     pm_disparity =
-      //block_rasterize
+      block_rasterize
       (stereo::patch_match_heise((left_disk_image),
-                               (right_disk_image),
-                               search_region/2,
-                                 Vector2i(15, 15), 2 , 5)
-       //Vector2i(256, 256));
-       );
+                                 (right_disk_image),
+                                 search_region/2,
+                                 Vector2i(15, 15), 2 , 6),
+       Vector2i(512, 512));
     write_image("patchmatch16-D.tif", pm_disparity);
     write_image("patchmatch16-L.tif", left_disk_image);
     write_image("patchmatch16-R.tif", right_disk_image);

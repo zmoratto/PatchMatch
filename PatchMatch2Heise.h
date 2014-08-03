@@ -184,7 +184,7 @@ namespace vw {
         float theta = 0;
         // Lambda is essentially how important the data term is over
         // being smooth.
-        float lambda = 500;
+        float lambda = 200000 / prod(m_kernel_size);
         float sigma_d = lambda / norm_2(Vector2f(m_search_region.size()));
         std::cout << "Lambda: " << lambda << " Sigma_d: " << sigma_d << std::endl;
 
