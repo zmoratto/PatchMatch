@@ -30,12 +30,13 @@ int main(int argc, char **argv) {
     vw::Timer corr_timer("Correlation Time");
 
     pm_disparity =
-      block_rasterize
+      //block_rasterize
       (stereo::patch_match_heise((left_disk_image),
-                                 (right_disk_image),
-                                 search_region/2,
-                                 Vector2i(15, 15), 2 , 10),
-       Vector2i(256, 256));
+                               (right_disk_image),
+                               search_region/2,
+                                 Vector2i(15, 15), 2 , 5)
+       //Vector2i(256, 256));
+       );
     write_image("patchmatch16-D.tif", pm_disparity);
     write_image("patchmatch16-L.tif", left_disk_image);
     write_image("patchmatch16-R.tif", right_disk_image);
@@ -44,7 +45,7 @@ int main(int argc, char **argv) {
 
   // Fit a surface
   ImageView<PixelMask<Vector2f> > sf_disparity = pm_disparity;
-  if (0) {
+  if (1) {
     vw::Timer surface_timer("Surface Fitting time");
 
     sf_disparity = block_rasterize(stereo::surface_fit(pm_disparity),
@@ -62,16 +63,16 @@ int main(int argc, char **argv) {
         }
       }
     }
-    write_image("surface32-D.tif", sf_disparity);
+    write_image("surface16-D.tif", sf_disparity);
   }
 
   // Apply imROF (original code)
-  float lambda = 1;
-  int iterations = 2000;
+  float lambda = .1;
+  int iterations = 1000;
   ImageView<float> buffer0, buffer1;
   buffer0.set_size(sf_disparity.cols(), sf_disparity.rows());
   buffer1.set_size(sf_disparity.cols(), sf_disparity.rows());
-  {
+  if (0) {
     vw::Timer timer("Original ROF");
     ImageView<PixelMask<Vector2f> > imROF_disparity(sf_disparity.cols(), sf_disparity.rows());
     fill(imROF_disparity, PixelMask<Vector2f>(Vector2f()));
@@ -80,14 +81,14 @@ int main(int argc, char **argv) {
       stereo::imROF(buffer0, lambda, iterations, buffer1);
       select_channel(imROF_disparity, i) = buffer1;
     }
-    write_image("imrof32-D.tif", imROF_disparity);
+    write_image("imrof16-D.tif", pixel_cast<PixelMask<Vector2i> >(apply_mask(imROF_disparity)));
   }
 
   DiskImageView<float> lenna("lenna/image_noise.png");
   ImageView<float> lenna_norm = lenna / 255.0;
 
   // Apply my code
-  {
+  if (0) {
     vw::Timer timer("ROF Primal Dual");
 
     float L2 = 8.0;
@@ -101,7 +102,7 @@ int main(int argc, char **argv) {
       select_channel(imROF_disparity, i) = buffer1;
     }
 
-    write_image("rofpd32-D.tif", imROF_disparity);
+    write_image("rofpd16-D.tif", pixel_cast<PixelMask<Vector2i> >(apply_mask(imROF_disparity)));
   }
 
   {
@@ -120,7 +121,7 @@ int main(int argc, char **argv) {
       select_channel(imROF_disparity, i) = buffer1;
     }
 
-    write_image("huberrof32-D.tif", imROF_disparity);
+    write_image("huberrof16-D.tif", pixel_cast<PixelMask<Vector2i> >(apply_mask(imROF_disparity)));
   }
 
   {
@@ -138,7 +139,33 @@ int main(int argc, char **argv) {
       select_channel(imROF_disparity, i) = buffer1;
     }
 
-    write_image("tvl132-D.tif", imROF_disparity);
+    write_image("tvl116-D.tif", pixel_cast<PixelMask<Vector2i> >(apply_mask(imROF_disparity)));
+  }
+
+  {
+    stereo::PMHeiseBase heise(bounding_box(left_disk_image),
+                      Vector2i(15, 15), 2, 1);
+
+    vw::Timer timer("PatchMatch internal weighted HuberROF");
+    ImageView<float> lweight;
+    heise.solve_gradient_weight(left_disk_image,
+                                bounding_box(left_disk_image),
+                                bounding_box(left_disk_image),
+                                lweight);
+    write_image("left16-W.tif", lweight);
+
+    ImageView<float>
+      p_x_dx(left_disk_image.cols(), left_disk_image.rows()),
+      p_x_dy(left_disk_image.cols(), left_disk_image.rows()),
+      p_y_dx(left_disk_image.cols(), left_disk_image.rows()),
+      p_y_dy(left_disk_image.cols(), left_disk_image.rows());
+    ImageView<Vector2i>
+      smooth(left_disk_image.cols(), left_disk_image.rows());
+    heise.solve_smooth
+      (pixel_cast<Vector2i>(apply_mask(sf_disparity)),
+       lweight, lambda * 1/3,
+       p_x_dx, p_x_dy, p_y_dx, p_y_dy, smooth);
+    write_image("heise16-D.tif", pixel_cast<PixelMask<Vector2i> >(smooth));
   }
 
   return 0;

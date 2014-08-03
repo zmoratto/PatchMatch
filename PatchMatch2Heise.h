@@ -14,7 +14,7 @@ namespace vw {
   namespace stereo {
 
     class PMHeiseBase : public PMNCCBase {
-    protected:
+    public:
       void evaluate_8_connect_smooth( ImageView<float> const& a,
                                       ImageView<float> const& b,
                                       BBox2i const& a_roi, BBox2i const& b_roi,
@@ -51,7 +51,6 @@ namespace vw {
       void copy_valid_pixels(ImageView<PixelMask<Vector2i> > const& input,
                              ImageView<Vector2i> & output) const;
 
-    public:
       PMHeiseBase(BBox2i const& bbox, Vector2i const& kernel,
                   float consistency_threshold, int32 max_iterations) :
         PMNCCBase(bbox, kernel, consistency_threshold, max_iterations) {}
@@ -173,8 +172,6 @@ namespace vw {
         // constraint on color transitions.
         solve_gradient_weight(l_exp, l_exp_roi, l_roi, l_weight);
         solve_gradient_weight(r_exp, r_exp_roi, r_roi, r_weight);
-        fill(l_weight, 1);
-        fill(r_weight, 1);
 
 #ifdef DEBUG
         write_image(prefix.str() + "l_weight.tif", l_weight);
@@ -273,8 +270,8 @@ namespace vw {
 
           // Increase the theta requirement between smooth and
           // non-smooth
-          theta += 1.0 / float(m_max_iterations - 1);
-          //theta = exp(iteration - m_max_iterations + 1);
+          theta += 1.0 / float(m_max_iterations);
+          //theta = exp(iteration - m_max_iterations);
           std::cout << "Theta is now: " << theta << std::endl;
 
           // Perform smoothing step

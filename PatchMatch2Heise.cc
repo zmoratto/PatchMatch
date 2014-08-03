@@ -148,7 +148,7 @@ void PMHuberROF( ImageView<float> const& input,
     output /= (1 + tau * theta_sigma_d);
 
     // DEBUG, determine are we actually reducing our own cost?
-    if (!(i % 10)) {
+    if (!(i % 20)) {
       std::cout << i << " -> energy -> " << calc_energy(output, input, weight, theta_sigma_d) << std::endl;
     }
   }
@@ -169,7 +169,7 @@ void stereo::PMHeiseBase::solve_smooth(ImageView<DispT> const& ab_disparity_nois
 
   // This implements equations 29 and 30 in the heise paper
   //  const int MAX_ITERATIONS = 101;
-  const int MAX_ITERATIONS = 41;
+  const int MAX_ITERATIONS = 101;
 
   ImageView<float> buffer0(ab_disparity_noisy.cols(),
                            ab_disparity_noisy.rows()),
