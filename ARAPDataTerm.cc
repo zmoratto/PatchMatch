@@ -137,9 +137,9 @@ void vw::stereo::define_superpixels(ImageView<PixelMask<Vector2i> > const& a_dis
 
   for (size_t i = 0; i < superpixels.size(); i++ ) {
     fit_surface_superpixel(a_disp,
-                           superpixels[100].first,
-                           superpixels[100].second,
-                           superpixel_surfaces_x[100],
-                           superpixel_surfaces_y[100]);
+                           superpixels[i].first,
+                           superpixels[i].second,
+                           superpixel_surfaces_x[i],
+                           superpixel_surfaces_y[i]);
   }
 }
