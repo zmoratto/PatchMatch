@@ -5,6 +5,7 @@
 
 #include <ARAPDataTerm.h>
 #include <PatchMatch2NCC.h>
+#include <NelderMead.h>
 
 using namespace vw;
 
@@ -95,6 +96,12 @@ int main(int argc, char **argv) {
     }
   }
   write_image("initial_quad16-D.tif", quad_disparity);
+
+  for (int i = 0; i < 10; i++ ) {
+    // Perform a simplex algorithm to solve for a better fitting surface
+
+    // Perform a second order fitting for the entire image.
+  }
 
   return 0;
 }
