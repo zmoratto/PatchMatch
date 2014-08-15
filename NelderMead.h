@@ -15,7 +15,7 @@ namespace vw {
       int mpts;
       int ndim;
       double fmin;  // Function value at the minimum
-      Vector<double, NDIM> y;  // Function values at the vertices of the simplex
+      Vector<double, NDIM + 1> y;  // Function values at the vertices of the simplex
       Vector<double, NDIM> p[NDIM+1];  // Current simplex
 
       Amoeba(const double ftoll) : ftol(ftoll) {}
@@ -51,11 +51,11 @@ namespace vw {
             pp[i][i-1] += dels[i-1];
           }
         }
-        return minimize(pp, func, NDIM+1);
+        return minimize(pp, func);
       }
 
       template <class T>
-      Vector<double, NDIM> minimize(Vector<double, NDIM> pp[], T & func, int num_vec)
+      Vector<double, NDIM> minimize(Vector<double, NDIM> pp[], T & func)
       // Most general interface;: initial simplex specified by the
       // matrix pp[0..ndim][0..ndim-1]/ Its ndim+1 rows are
       // ndim-dimensional vectors that are the vertices of the
@@ -64,11 +64,12 @@ namespace vw {
         const int NMAX=5000; // Maximum allowed number of function evaluations
         const double TINY=1e-10;
         int ihi, ilo, inhi;
-        mpts = num_vec;
+        mpts = NDIM+1;
         ndim = NDIM;
         Vector<double, NDIM> psum, pmin, x;
-        p = pp;
-        y.resize(mpts);
+        for (int i = 0; i < mpts; i++) {
+          p[i] = pp[i];
+        }
         for (int i = 0; i < mpts; i++) {
           x = p[i];
           y[i] = func(x);
@@ -80,7 +81,13 @@ namespace vw {
           // First we must determine which point is te highest
           // (worst), next highest, and lowest (best), by looping over
           // the points in the simplex.
-          ihi = y[0] > y[1] ? (inhi=1,0)  : (inhi,0,1);
+          if (y[0] > y[1])  {
+            ihi = 0;
+            inhi = 1;
+          } else {
+            ihi = 1;
+            inhi = 0;
+          }
           for (int i = 0; i < mpts; i++) {
             if (y[i] <= y[ilo]) ilo=i;
             if (y[i] > y[ihi]) {
@@ -136,16 +143,16 @@ namespace vw {
 
       inline void get_psum(Vector<double, NDIM> p[], Vector<double, NDIM> &psum) {
         // Utility function.
-        psum.clear();
+        psum = Vector<double, NDIM>();
         for (int i = 0; i < mpts; i++) {
           psum += p[i];
         }
       }
 
       template <class T>
-      double amotry(Vector<double, NDIM> p[], Vector<double, NDIM> &y,
+      double amotry(Vector<double, NDIM> p[], Vector<double, NDIM + 1> &y,
                     Vector<double, NDIM> &psum,
-                    const int ihi, const double fac, T &func)
+                    int ihi, double fac, T &func)
       // Helper function: Extrapolates by a factor fac through the
       // face of the simplex across from the high point, tries it, and
       // replaces the high point if the new point is better.

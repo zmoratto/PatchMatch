@@ -127,8 +127,8 @@ int main(int argc, char **argv) {
 
   // Load up an image
   ImageView<float> input_left, input_right;
-  read_image(input_left, "../PatchMatch/arctic/asp_al-L.crop.8.tif");
-  read_image(input_right, "../PatchMatch/arctic/asp_al-R.crop.8.tif");
+  read_image(input_left, "../arctic/asp_al-L.crop.8.tif");
+  read_image(input_right, "../arctic/asp_al-R.crop.8.tif");
 
   // Subsample the image twice
   std::vector<float > kernel(5);

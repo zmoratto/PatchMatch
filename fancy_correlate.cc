@@ -106,7 +106,7 @@ int main(int argc, char **argv) {
                         stereo::iterative_mapping_stereo
                         (left_disk_image, right_disk_image,
                          stereo::surface_fit
-                         (stereo::patch_match_heise((left_disk_image),
+                         (stereo::patch_match_ncc((left_disk_image),
                                                     (right_disk_image),
                                                     BBox2i(Vector2i(h_corr_min, v_corr_min),
                                                            Vector2i(h_corr_max, v_corr_max)),

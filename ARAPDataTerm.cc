@@ -68,6 +68,41 @@ double vw::stereo::evaluate_superpixel(ImageView<float> const& a,
   return stereo::gradient_cost_metric(a_crop, b_crop);
 }
 
+double vw::stereo::evaluate_intermediate_term(double theta,
+                                              ImageView<Vector2f> const& u,
+                                              BBox2i const& a_superpixel,
+                                              Vector2 const& a_barycenter,
+                                              Vector<double, 10> const& surface) {
+  if (theta < 1e-6) {
+    // Practically zero
+    return 0;
+  }
+
+  // Render a disparity
+  double sum_error = 0;
+  for (int j = 0; j < a_superpixel.height(); j++ ) {
+    for (int i = 0; i < a_superpixel.width(); i++ ) {
+      Vector2 dp = Vector2(i,j) + Vector2(a_superpixel.min()) - a_barycenter;
+      Vector2 dp2 = elem_prod(dp, dp);
+      Vector2 disp(
+                   surface[0] +
+                   surface[1] * dp[0] +
+                   surface[2] * dp[1] +
+                   surface[3] * dp2[0] +
+                   surface[4] * dp2[1],
+                   surface[5] +
+                   surface[6] * dp[0] +
+                   surface[7] * dp[1] +
+                   surface[8] * dp2[0] +
+                   surface[9] * dp2[1]);
+      sum_error += norm_2_sqr(disp - u(i + a_superpixel.min()[0],
+                                       j + a_superpixel.min()[1]));
+    }
+  }
+
+  return sum_error;
+}
+
 struct QuadraticSurfaceFit {
   QuadraticSurfaceFit(double obs_dx, double obs_dy,
                       double x, double y) :
@@ -151,8 +186,6 @@ void vw::stereo::render_disparity_image(std::vector<std::pair<BBox2i, Vector2> >
   disp.set_size(output_size.width(), output_size.height());
   fill(disp, PixelMask<Vector2f>(Vector2f()));
   for (size_t s = 0; s < superpixels.size(); s++ ) {
-    std::cout << superpixels[s].first << std::endl;
-    std::cout << superpixel_surfaces[s] << std::endl;
     for (int j = superpixels[s].first.min()[1];
          j < superpixels[s].first.max()[1]; j++) {
       for (int i = superpixels[s].first.min()[0];
