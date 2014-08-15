@@ -17,19 +17,20 @@ namespace vw {
                                ImageView<float> const& b,
                                BBox2i const& a_superpixel,
                                Vector2 const& a_barycenter,
-                               Vector<double, 5> const& surface_dx,
-                               Vector<double, 5> const& surface_dy);
+                               Vector<double, 10> const& surface);
 
     void fit_surface_superpixel(ImageView<PixelMask<Vector2i> > const& a_disp,
                                 BBox2i const& a_subpixel,
                                 Vector2 const& a_barycenter,
-                                Vector<double, 5> & surface_dx,
-                                Vector<double, 5> & surface_dy);
+                                Vector<double, 10> & surface);
 
     void define_superpixels(ImageView<PixelMask<Vector2i> > const& a_disp,
                             std::vector<std::pair<BBox2i, Vector2> > & superpixels,
-                            std::vector<Vector<double, 5> > & superpixel_surfaces_x,
-                            std::vector<Vector<double, 5> > & superpixel_surfaces_y);
+                            std::vector<Vector<double, 10> > & superpixel_surfaces);
+
+    void render_disparity_image(std::vector<std::pair<BBox2i, Vector2> > const& superpixels,
+                                std::vector<Vector<double, 10> > const& superpixel_surfaces,
+                                ImageView<PixelMask<Vector2f> > & disp);
   }
 }
 

@@ -41,18 +41,16 @@ int main(int argc, char **argv) {
             << superpixels.size() << std::endl;
 
   // Define the surfaces
-  std::vector<Vector<double, 5> > superpixel_surfaces_x, superpixel_surfaces_y;
+  std::vector<Vector<double, 10> > superpixel_surfaces;
   stereo::define_superpixels(pm_disparity,
                              superpixels,
-                             superpixel_surfaces_x,
-                             superpixel_surfaces_y);
+                             superpixel_surfaces);
 
   // Track superpixel 100
   std::cout << "Superpixel 100:\n"
             << superpixels[100].first << "\n"
             << superpixels[100].second << "\n"
-            << superpixel_surfaces_x[100] << "\n"
-            << superpixel_surfaces_y[100] << std::endl;
+            << superpixel_surfaces[100] << std::endl;
 
   // Evaluate the cost for each of the subpixels
   for (size_t i = 0; i < superpixels.size(); i++ ) {
@@ -61,40 +59,15 @@ int main(int argc, char **argv) {
                                              right_disk_image,
                                              superpixels[i].first,
                                              superpixels[i].second,
-                                             superpixel_surfaces_x[i],
-                                             superpixel_surfaces_y[i])
+                                             superpixel_surfaces[i])
               << std::endl;
   }
 
   // Render an image of what the surfaces represent
   ImageView<PixelMask<Vector2f> > quad_disparity(pm_disparity.cols(), pm_disparity.rows());
-  fill(quad_disparity, PixelMask<Vector2f>(Vector2f()));
-  for (size_t s = 0; s < superpixels.size(); s++ ) {
-    std::cout << superpixels[s].first << std::endl;
-    std::cout << superpixel_surfaces_x[s] << std::endl;
-    std::cout << superpixel_surfaces_y[s] << std::endl;
-    for (int j = superpixels[s].first.min()[1];
-         j < superpixels[s].first.max()[1]; j++) {
-      for (int i = superpixels[s].first.min()[0];
-           i < superpixels[s].first.max()[0]; i++) {
-        Vector2 dp = Vector2(i, j) - superpixels[s].second;
-        Vector2 dp2 = elem_prod(dp, dp);
-        quad_disparity(i, j)[0] =
-          superpixel_surfaces_x[s][0] +
-          superpixel_surfaces_x[s][1] * dp[0] +
-          superpixel_surfaces_x[s][2] * dp[1] +
-          superpixel_surfaces_x[s][3] * dp2[0] +
-          superpixel_surfaces_x[s][4] * dp2[1];
-        quad_disparity(i, j)[1] =
-          superpixel_surfaces_y[s][0] +
-          superpixel_surfaces_y[s][1] * dp[0] +
-          superpixel_surfaces_y[s][2] * dp[1] +
-          superpixel_surfaces_y[s][3] * dp2[0] +
-          superpixel_surfaces_y[s][4] * dp2[1];
-        //std::cout << i << " " << j << " " << quad_disparity(i,j) << std::endl;
-      }
-    }
-  }
+  stereo::render_disparity_image(superpixels,
+                                 superpixel_surfaces,
+                                 quad_disparity);
   write_image("initial_quad16-D.tif", quad_disparity);
 
   for (int i = 0; i < 10; i++ ) {
