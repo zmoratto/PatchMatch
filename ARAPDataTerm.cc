@@ -73,7 +73,7 @@ double vw::stereo::evaluate_intermediate_term(double theta,
                                               BBox2i const& a_superpixel,
                                               Vector2 const& a_barycenter,
                                               Vector<double, 10> const& surface) {
-  if (theta < 1e-6) {
+  if (theta < 1e-3) {
     // Practically zero
     return 0;
   }
@@ -100,7 +100,7 @@ double vw::stereo::evaluate_intermediate_term(double theta,
     }
   }
 
-  return sum_error;
+  return theta * sum_error;
 }
 
 struct QuadraticSurfaceFit {
@@ -137,7 +137,7 @@ void vw::stereo::fit_surface_superpixel(ImageView<PixelMask<Vector2i> > const& a
                                         Vector2 const& a_barycenter,
                                         Vector<double, 10> & surface) {
   ceres::Problem problem;
-  for (int j = a_subpixel.min()[1]; j < a_subpixel.max()[1]; j+=2) {
+  for (int j = a_subpixel.min()[1]; j < a_subpixel.max()[1]; j++) {
     for (int i = a_subpixel.min()[0]; i < a_subpixel.max()[0]; i++) {
       if (is_valid(a_disp(i,j))) {
         problem.AddResidualBlock
@@ -157,6 +157,9 @@ void vw::stereo::fit_surface_superpixel(ImageView<PixelMask<Vector2i> > const& a
   options.minimizer_progress_to_stdout = false;
   ceres::Solver::Summary summary;
   ceres::Solve(options, &problem, &summary);
+  if (summary.termination_type == ceres::NO_CONVERGENCE) {
+    std::fill(surface.begin(), surface.end(), 0);
+  }
 }
 
 void vw::stereo::define_superpixels(ImageView<PixelMask<Vector2i> > const& a_disp,

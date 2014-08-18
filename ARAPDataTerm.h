@@ -91,7 +91,8 @@ namespace vw {
         left(a), right(b), u(u), superpixel(s), theta(t) {}
 
       double operator()(Vector<double, 10> const& surface) const {
-        return stereo::evaluate_superpixel(left, right,
+        std::cout << surface << std::endl;
+        return 20000*stereo::evaluate_superpixel(left, right,
                                            superpixel.first,
                                            superpixel.second,
                                            surface) +
