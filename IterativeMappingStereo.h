@@ -7,6 +7,8 @@
 #include <vw/Stereo/Correlate.h>
 #include <vw/Stereo/CostFunctions.h>
 
+#include <SurfaceFitWCostView.h>
+
 namespace vw {
   namespace stereo {
 
@@ -16,6 +18,13 @@ namespace vw {
       Image2T m_right_image;
       DispT m_disparity_image;
       int m_iterations;
+
+      void blur_disparity(ImageView<PixelMask<Vector2f> >& sf_disparity) const {
+        select_channel(sf_disparity,0) =
+          gaussian_filter(select_channel(sf_disparity,0),5);
+        select_channel(sf_disparity,1) =
+          gaussian_filter(select_channel(sf_disparity,1),5);
+      }
 
     public:
       typedef PixelMask<Vector2f> pixel_type;
@@ -44,11 +53,35 @@ namespace vw {
       typedef CropView<ImageView<pixel_type> > prerasterize_type;
       inline prerasterize_type prerasterize(BBox2i const& bbox) const {
 
+        std::ostringstream tag;
+        tag << bbox.min().x() << "_" << bbox.min().y();
+
         // Make a copy of the left and render a transformed right and
         // make a copy of the disparity.
-        ImageView<PixelMask<Vector2f> > disparity =
-          crop(m_disparity_image, bbox);
+        ImageView<PixelMask<Vector2f> > disparity;
+        {
+          vw::Timer timer("disparity");
+          disparity = crop(m_disparity_image, bbox);
+        }
+        std::cout << "Have disparity" << std::endl;
+        write_image("input_"+tag.str()+"-D.tif", disparity);
         ImageView<float> left = crop(m_left_image, bbox);
+        write_image("input_"+tag.str()+"-L.tif", left);
+        {
+          vw::Timer timer("surface fitting");
+          disparity =
+            block_rasterize(stereo::surface_fit(disparity),
+                            Vector2i(64, 64), 2);
+          // ImageView<float> right = crop(m_right_image, bbox);
+          // stereo::SurfaceFitWCost(disparity, left, right); // Hmm this needs further thought
+        }
+
+        write_image("fit_"+tag.str()+"-D.tif", disparity);
+        {
+          vw::Timer timer("blurring");
+          blur_disparity(disparity);
+        }
+        write_image("map_"+tag.str()+"-D.tif", disparity);
         ImageView<float> t_right =
           crop(transform(m_right_image,
                          stereo::DisparityTransform
@@ -56,32 +89,36 @@ namespace vw {
                                             -bbox.min().x(), -bbox.min().y(),
                                             cols(), rows()))),
                bbox);
+        std::cout << "Transform applied created" << std::endl;
+        write_image("input_"+tag.str()+"-R.tif", t_right);
 
         // Find a delta disparity to refine our polynomial fit disparity map
-        ImageView<PixelMask<Vector2i> > delta_disparity =
-          /*
-          stereo::pyramid_correlate(left, t_right,
-                                    constant_view(uint8(255), left),
-                                    constant_view(uint8(255), t_right),
-                                    stereo::NullOperation(),
-                                    BBox2i(Vector2i(-15,-15), Vector2i(15, 15)),
-                                    Vector2i(15, 15),
-                                    stereo::CROSS_CORRELATION, 0, 0, 2, 3);
-          */
-          stereo::correlate(left, t_right, stereo::NullOperation(),
-                            BBox2i(Vector2i(-15,-15), Vector2i(15, 15)),
-                            Vector2i(15, 15),
-                            stereo::CROSS_CORRELATION, 2);
+        ImageView<PixelMask<Vector2i> > delta_disparity;
+        {
+          vw::Timer timer("initial delta fit");
+          delta_disparity =
+            stereo::correlate(left, t_right, stereo::NullOperation(),
+                              BBox2i(Vector2i(-15,-15), Vector2i(15, 15)),
+                              Vector2i(15, 15),
+                              stereo::CROSS_CORRELATION, 0);
+        }
 
         // Create a combined disparity and then smooth it again for mapping
         ImageView<pixel_type > combined_disparity = disparity + delta_disparity;
 
         for (int iterations = m_iterations; iterations > 0; iterations--) {
-          fill(disparity, pixel_type(Vector2f()));
-          select_channel(disparity, 0) = gaussian_filter(select_channel(combined_disparity,0),2);
-          select_channel(disparity, 1) = gaussian_filter(select_channel(combined_disparity,1),2);
+          // Try another surface fit
+          {
+            vw::Timer timer("fit");
+            disparity =
+              block_rasterize(stereo::surface_fit(combined_disparity),
+                              Vector2i(64, 64), 0);
+            blur_disparity(disparity);
+          }
 
           // Do a better warping of the right image to the left
+          {
+            vw::Timer timer("transformed");
           t_right =
             crop(transform(m_right_image,
                            stereo::DisparityTransform
@@ -89,14 +126,18 @@ namespace vw {
                                               -bbox.min().x(), -bbox.min().y(),
                                               cols(), rows()))),
                  bbox);
+          }
 
+          {
+            vw::Timer timer("correlate");
           // Again calculate a disparity using this newly refined image
           delta_disparity =
             stereo::correlate(left, t_right, stereo::NullOperation(),
-                              BBox2i(Vector2i(-iterations,-iterations),
-                                     Vector2i(iterations, iterations)),
-                              Vector2i(3 + 2 *iterations, 3 + 2 * iterations),
-                              stereo::CROSS_CORRELATION, 2);
+                              BBox2i(Vector2i(-5, -2),
+                                     Vector2i(5, 2)),
+                              Vector2i(15, 15),
+                              stereo::CROSS_CORRELATION, 0);
+          }
           combined_disparity = disparity + delta_disparity;
         }
 

@@ -105,15 +105,14 @@ int main(int argc, char **argv) {
       block_write_image(tag + "-D.tif",
                         stereo::iterative_mapping_stereo
                         (left_disk_image, right_disk_image,
-                         stereo::surface_fit
-                         (stereo::patch_match_ncc((left_disk_image),
-                                                    (right_disk_image),
-                                                    BBox2i(Vector2i(h_corr_min, v_corr_min),
-                                                           Vector2i(h_corr_max, v_corr_max)),
+                         stereo::patch_match_ncc((left_disk_image),
+                                                 (right_disk_image),
+                                                 BBox2i(Vector2i(h_corr_min, v_corr_min),
+                                                        Vector2i(h_corr_max, v_corr_max)),
                                                     Vector2i(15, 15) /* kernel size */,
-                                                    cross_corr_thres,
-                                                    pm_iterations /* number of iterations */)),
-                         map_iterations),
+                                                 cross_corr_thres,
+                                                 pm_iterations /* number of iterations */),
+                         /*map_iterations*/ 1),
                         TerminalProgressCallback( "", "Rendering: "));
     }
 

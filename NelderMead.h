@@ -107,7 +107,10 @@ namespace vw {
             fmin = y[0];
             return pmin;
           }
-          if (nfunc >= NMAX) throw("NMAX exceeded");
+          if (nfunc >= NMAX) {
+            std::cout << "NMAX exceeded";
+            return p[0];
+          }
           nfunc += 2;
           // Begin a new iteration. First extrapolate by a factor -1
           // through the face of the simplex across from the high
