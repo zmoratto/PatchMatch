@@ -1,7 +1,6 @@
 #include <vw/Core.h>
 #include <vw/Image.h>
 #include <vw/FileIO.h>
-#include <vw/Stereo/PreFilter.h>
 #include <vw/Stereo/CorrelationView.h>
 #include <vw/Stereo/DisparityMap.h>
 
@@ -14,11 +13,27 @@ namespace po = boost::program_options;
 
 using namespace vw;
 
-void blur_disparity(ImageView<PixelMask<Vector2f> >& sf_disparity) {
+void blur_disparity(ImageView<PixelMask<Vector2f> >& sf_disparity,
+                    BBox2i const& disparity_bounds) {
   select_channel(sf_disparity,0) =
-    gaussian_filter(select_channel(sf_disparity,0),5);
+    clamp(gaussian_filter(select_channel(sf_disparity,0),5),
+          disparity_bounds.min()[0],
+          disparity_bounds.max()[0]);
   select_channel(sf_disparity,1) =
-    gaussian_filter(select_channel(sf_disparity,1),5);
+    clamp(gaussian_filter(select_channel(sf_disparity,1),5),
+          disparity_bounds.min()[1],
+          disparity_bounds.max()[1]);
+}
+
+void copy_valid(ImageView<PixelMask<Vector2f> >& destination,
+                ImageView<PixelMask<Vector2f> >& source) {
+  for (int j = 0; j < destination.rows(); j++ ) {
+    for (int i = 0; i < destination.cols(); i++ ) {
+      if (is_valid(source(i,j))) {
+        destination(i,j) = source(i,j);
+      }
+    }
+  }
 }
 
 int main(int argc, char **argv) {
@@ -26,11 +41,10 @@ int main(int argc, char **argv) {
   DiskImageView<float>
     left_disk_image("arctic/asp_al-L.crop.32.tif"),
     right_disk_image("arctic/asp_al-R.crop.32.tif");
-  std::string match_filename("arctic/asp_al-L.crop.8__asp_al-R.crop.8.match");
-  BBox2i search_region(Vector2i(-70,-25),
-                       Vector2i(105,46));
 
-  stereo::SubtractedMean filter(15.0);
+  // This is the search range for the final full scale image
+  BBox2i search_region(Vector2i(-566, -224),
+                       Vector2i(818, 110));
 
   ImageView<PixelMask<Vector2i> > pm_disparity;
   {
@@ -40,7 +54,7 @@ int main(int argc, char **argv) {
       block_rasterize
       (stereo::patch_match_ncc((left_disk_image),
                                (right_disk_image),
-                               search_region/4,
+                               search_region/32,
                                Vector2i(15, 15), 2 , 16),
        Vector2i(256, 256));
     write_image("patchmatch32-D.tif", pm_disparity);
@@ -55,300 +69,70 @@ int main(int argc, char **argv) {
   }
   {
     vw::Timer timer("Bluring");
-    blur_disparity(sf_disparity);
+    blur_disparity(sf_disparity, search_region/32);
     write_image("surface-blur32-D.tif", sf_disparity);
   }
 
 
-  DiskImageView<float> left16("arctic/asp_al-L.crop.16.tif"), right16("arctic/asp_al-R.crop.16.tif");
-  ImageView<PixelMask<Vector2f> > sf_disparity_super =
-    2*crop(resample(sf_disparity,2,2), bounding_box(left16));
-  sf_disparity = sf_disparity_super;
-  ImageView<float> right16_t;
-  {
-    vw::Timer timer("Transform Right");
-    right16_t =
-      block_rasterize
-      (transform(right16,
-                 stereo::DisparityTransform(sf_disparity)),
-       Vector2i(256, 256));
-    write_image("transformed16-L.tif", left16);
-    write_image("transformed16-R.tif", right16_t);
-  }
-  ImageView<PixelMask<Vector2f> > combined;
-  {
-    vw::Timer timer("Correlation Time");
-    pm_disparity =
-      block_rasterize
-      (stereo::patch_match_ncc((left16), (right16_t),
+  for (int i = 4; i > 0; i--) {
+    std::cout << "Processing level: " << pow(2, i) << std::endl;
+    std::ostringstream ltag;
+    ltag << pow(2,i);
+
+    DiskImageView<float> left_int("arctic/asp_al-L.crop."+ltag.str()+".tif"),
+      right_int("arctic/asp_al-R.crop."+ltag.str()+".tif");
+    ImageView<PixelMask<Vector2f> > sf_disparity_super =
+      2*crop(resample(sf_disparity,2,2), bounding_box(left_int));
+    sf_disparity = sf_disparity_super;
+    ImageView<float> right_t;
+    {
+      vw::Timer timer("Transform Right");
+      right_t =
+        block_rasterize
+        (transform(right_int,
+                   stereo::DisparityTransform(sf_disparity)),
+         Vector2i(256, 256));
+      write_image("transformed"+ltag.str()+"-L.tif", left_int);
+      write_image("transformed"+ltag.str()+"-R.tif", right_t);
+    }
+    ImageView<PixelMask<Vector2f> > combined;
+    {
+      vw::Timer timer("Correlation Time");
+      pm_disparity =
+        block_rasterize
+        (stereo::correlate(left_int, right_t,
+                           stereo::NullOperation(),
                            BBox2i(-8, -8, 16, 16),
-                           Vector2i(15, 15), 2, 32),
-       Vector2i(256, 256));
-    write_image("pmdelta16-D.tif", pm_disparity);
-    combined = sf_disparity_super + pm_disparity;
-    write_image("patchmatch16-D.tif", combined);
-  }
-
-  {
-    vw::Timer surface_timer("Surface Fitting time");
-
-    sf_disparity = block_rasterize(stereo::surface_fit(combined),
-                                   Vector2i(64, 64));
-    write_image("surface16-D.tif", sf_disparity);
-  }
-  {
-    // The sf_dispaity will be used to fill holes in combined. However
-    // instead will reapply the patch match disparity and then blur it
-    // in.
-    //
-    // We don't do this at the beginning because the original
-    // disparity has a lot of noise.
-    for (int j = 0; j < sf_disparity.rows(); j++ ) {
-      for (int i = 0; i < sf_disparity.cols(); i++ ) {
-        if (is_valid(combined(i,j))) {
-          sf_disparity(i,j) = combined(i,j);
-        }
-      }
+                           Vector2i(13, 13), stereo::CROSS_CORRELATION, 2),
+         Vector2i(256, 256));
+      write_image("pmdelta"+ltag.str()+"-D.tif", pm_disparity);
+      combined = sf_disparity_super + pm_disparity;
+      write_image("patchmatch"+ltag.str()+"-D.tif", combined);
     }
 
-    vw::Timer timer("Bluring");
-    blur_disparity(sf_disparity);
-    write_image("surface-blur16-D.tif", sf_disparity);
-  }
+    {
+      vw::Timer surface_timer("Surface Fitting time");
 
-  {
-    right16_t =
-      block_rasterize
-      (transform(right16,
-                 stereo::DisparityTransform(sf_disparity)),
-       Vector2i(256, 256));
-    write_image("transformed16_2-L.tif", left16);
-    write_image("transformed16_2-R.tif", right16_t);
-    right16_t =
-      block_rasterize
-      (transform(right16,
-                 stereo::DisparityTransform(combined)),
-       Vector2i(256, 256));
-    write_image("transformed16_2-TR.tif", right16_t);
-  }
-
-  DiskImageView<float> left8("arctic/asp_al-L.crop.8.tif"), right8("arctic/asp_al-R.crop.8.tif");
-  sf_disparity_super =
-    2 * crop(resample(sf_disparity, 2, 2), bounding_box(left8));
-  sf_disparity = sf_disparity_super;
-  ImageView<float> right8_t;
-  {
-    vw::Timer timer("Transform Right");
-    right8_t =
-      block_rasterize
-      (transform(right8,
-                 stereo::DisparityTransform(sf_disparity)),
-       Vector2i(256, 256));
-    write_image("transformed8-L.tif", left8);
-    write_image("transformed8-R.tif", right8_t);
-  }
-  {
-    vw::Timer timer("Correlation Time");
-    pm_disparity =
-      block_rasterize
-      (stereo::patch_match_ncc((left8), (right8_t),
-                           BBox2i(-8, -8, 16, 16),
-                           Vector2i(13, 13), 2, 16),
-       Vector2i(256, 256));
-    write_image("pmdelta8-D.tif", pm_disparity);
-    combined = sf_disparity_super + pm_disparity;
-    write_image("patchmatch8-D.tif", combined);
-  }
-  {
-    vw::Timer surface_timer("Surface Fitting time");
-
-    sf_disparity = block_rasterize(stereo::surface_fit(combined),
-                                   Vector2i(64, 64));
-    write_image("surface8-D.tif", sf_disparity);
-  }
-  {
-    // The sf_dispaity will be used to fill holes in combined. However
-    // instead will reapply the patch match disparity and then blur it
-    // in.
-    //
-    // We don't do this at the beginning because the original
-    // disparity has a lot of noise.
-    for (int j = 0; j < sf_disparity.rows(); j++ ) {
-      for (int i = 0; i < sf_disparity.cols(); i++ ) {
-        if (is_valid(combined(i,j))) {
-          sf_disparity(i,j) = combined(i,j);
-        }
-      }
+      sf_disparity = block_rasterize(stereo::surface_fit(combined),
+                                     Vector2i(64, 64));
+      write_image("surface"+ltag.str()+"-D.tif", sf_disparity);
     }
-
-    vw::Timer timer("Bluring");
-    blur_disparity(sf_disparity);
-    write_image("surface-blur8-D.tif", sf_disparity);
-  }
-
-  {
-    right8_t =
-      block_rasterize
-      (transform(right8,
-                 stereo::DisparityTransform(sf_disparity)),
-       Vector2i(256, 256));
-    write_image("transformed8_2-L.tif", left8);
-    write_image("transformed8_2-R.tif", right8_t);
-    right8_t =
-      block_rasterize
-      (transform(right8,
-                 stereo::DisparityTransform(combined)),
-       Vector2i(256, 256));
-    write_image("transformed8_2-TR.tif", right8_t);
-  }
-
-  DiskImageView<float> left4("arctic/asp_al-L.crop.4.tif"), right4("arctic/asp_al-R.crop.4.tif");
-  sf_disparity_super =
-    2 * crop(resample(sf_disparity, 2, 2), bounding_box(left4));
-  sf_disparity = sf_disparity_super;
-  ImageView<float> right4_t;
-  {
-    vw::Timer timer("Transform Right");
-    right4_t =
-      block_rasterize
-      (transform(right4,
-                 stereo::DisparityTransform(sf_disparity)),
-       Vector2i(256, 256));
-    write_image("transformed4-L.tif", left4);
-    write_image("transformed4-R.tif", right4_t);
-  }
-  {
-    vw::Timer timer("Correlation Time");
-    pm_disparity =
-      block_rasterize
-      (stereo::patch_match_ncc((left4), (right4_t),
-                           BBox2i(-8, -8, 16, 16),
-                           Vector2i(13, 13), 2, 16),
-       Vector2i(256, 256));
-    write_image("pmdelta4-D.tif", pm_disparity);
-    combined = sf_disparity_super + pm_disparity;
-    write_image("patchmatch4-D.tif", combined);
-  }
-  {
-    vw::Timer surface_timer("Surface Fitting time");
-
-    sf_disparity = block_rasterize(stereo::surface_fit(combined),
-                                   Vector2i(64, 64));
-    write_image("surface4-D.tif", sf_disparity);
-  }
-  {
-    // The sf_dispaity will be used to fill holes in combined. However
-    // instead will reapply the patch match disparity and then blur it
-    // in.
-    //
-    // We don't do this at the beginning because the original
-    // disparity has a lot of noise.
-    for (int j = 0; j < sf_disparity.rows(); j++ ) {
-      for (int i = 0; i < sf_disparity.cols(); i++ ) {
-        if (is_valid(combined(i,j))) {
-          sf_disparity(i,j) = combined(i,j);
-        }
-      }
+    {
+      vw::Timer timer("Bluring");
+      copy_valid(sf_disparity, combined);
+      blur_disparity(sf_disparity, search_region/pow(2,i));
+      write_image("surface-blur"+ltag.str()+"-D.tif", sf_disparity);
     }
-
-    vw::Timer timer("Bluring");
-    blur_disparity(sf_disparity);
-    write_image("surface-blur4-D.tif", sf_disparity);
   }
 
-  {
-    right4_t =
-      block_rasterize
-      (transform(right4,
-                 stereo::DisparityTransform(sf_disparity)),
-       Vector2i(256, 256));
-    write_image("transformed4_2-L.tif", left4);
-    write_image("transformed4_2-R.tif", right4_t);
-    right4_t =
-      block_rasterize
-      (transform(right4,
-                 stereo::DisparityTransform(combined)),
-       Vector2i(256, 256));
-    write_image("transformed4_2-TR.tif", right4_t);
-  }
-
-  // RESTART
-
-  DiskImageView<float> left2("arctic/asp_al-L.crop.2.tif"), right2("arctic/asp_al-R.crop.2.tif");
-  sf_disparity_super =
-    2 * crop(resample(sf_disparity, 2, 2), bounding_box(left2));
-  sf_disparity = sf_disparity_super;
-  ImageView<float> right2_t;
-  {
-    vw::Timer timer("Transform Right");
-    right2_t =
-      block_rasterize
-      (transform(right2,
-                 stereo::DisparityTransform(sf_disparity)),
-       Vector2i(256, 256));
-    write_image("transformed2-L.tif", left2);
-    write_image("transformed2-R.tif", right2_t);
-  }
-  {
-    vw::Timer timer("Correlation Time");
-    pm_disparity =
-      block_rasterize
-      (stereo::patch_match_ncc((left2), (right2_t),
-                           BBox2i(-8, -8, 16, 16),
-                           Vector2i(13, 13), 2, 16),
-       Vector2i(256, 256));
-    write_image("pmdelta2-D.tif", pm_disparity);
-    combined = sf_disparity_super + pm_disparity;
-    write_image("patchmatch2-D.tif", combined);
-  }
-  {
-    vw::Timer surface_timer("Surface Fitting time");
-
-    sf_disparity = block_rasterize(stereo::surface_fit(combined),
-                                   Vector2i(64, 64));
-    write_image("surface2-D.tif", sf_disparity);
-  }
-  {
-    // The sf_dispaity will be used to fill holes in combined. However
-    // instead will reapply the patch match disparity and then blur it
-    // in.
-    //
-    // We don't do this at the beginning because the original
-    // disparity has a lot of noise.
-    for (int j = 0; j < sf_disparity.rows(); j++ ) {
-      for (int i = 0; i < sf_disparity.cols(); i++ ) {
-        if (is_valid(combined(i,j))) {
-          sf_disparity(i,j) = combined(i,j);
-        }
-      }
-    }
-
-    vw::Timer timer("Bluring");
-    blur_disparity(sf_disparity);
-    write_image("surface-blur2-D.tif", sf_disparity);
-  }
-
-  {
-    right2_t =
-      block_rasterize
-      (transform(right2,
-                 stereo::DisparityTransform(sf_disparity)),
-       Vector2i(256, 256));
-    write_image("transformed2_2-L.tif", left2);
-    write_image("transformed2_2-R.tif", right2_t);
-    right2_t =
-      block_rasterize
-      (transform(right2,
-                 stereo::DisparityTransform(combined)),
-       Vector2i(256, 256));
-    write_image("transformed2_2-TR.tif", right2_t);
-  }
+  // Final level .. I got lazy
 
   DiskImageView<float> left1("arctic/asp_al-L.crop.tif"), right1("arctic/asp_al-R.crop.tif");
-  sf_disparity_super =
+  ImageView<PixelMask<Vector2f> > sf_disparity_super =
     2 * crop(resample(sf_disparity, 2, 2), bounding_box(left1));
   sf_disparity = sf_disparity_super;
   ImageView<float> right1_t;
+  ImageView<PixelMask<Vector2f> > combined;
   {
     vw::Timer timer("Transform Right");
     right1_t =
@@ -363,10 +147,12 @@ int main(int argc, char **argv) {
     vw::Timer timer("Correlation Time");
     pm_disparity =
       block_rasterize
-      (stereo::patch_match_ncc((left1), (right1_t),
-                           BBox2i(-8, -8, 16, 16),
-                           Vector2i(13, 13), 2, 16),
+      (stereo::correlate(left1, right1_t,
+                         stereo::NullOperation(),
+                         BBox2i(-8, -8, 16, 16),
+                         Vector2i(13, 13), stereo::CROSS_CORRELATION, 2),
        Vector2i(256, 256));
+
     write_image("pmdelta1-D.tif", pm_disparity);
     combined = sf_disparity_super + pm_disparity;
     write_image("patchmatch1-D.tif", combined);
@@ -379,22 +165,9 @@ int main(int argc, char **argv) {
     write_image("surface1-D.tif", sf_disparity);
   }
   {
-    // The sf_dispaity will be used to fill holes in combined. However
-    // instead will reapply the patch match disparity and then blur it
-    // in.
-    //
-    // We don't do this at the beginning because the original
-    // disparity has a lot of noise.
-    for (int j = 0; j < sf_disparity.rows(); j++ ) {
-      for (int i = 0; i < sf_disparity.cols(); i++ ) {
-        if (is_valid(combined(i,j))) {
-          sf_disparity(i,j) = combined(i,j);
-        }
-      }
-    }
-
     vw::Timer timer("Bluring");
-    blur_disparity(sf_disparity);
+    copy_valid(sf_disparity, combined);
+    blur_disparity(sf_disparity, search_region);
     write_image("surface-blur1-D.tif", sf_disparity);
   }
 
