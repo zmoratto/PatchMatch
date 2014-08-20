@@ -38,7 +38,7 @@ namespace vw {
 
     class SurfaceFitViewBase {
     protected:
-      void fit_2d_polynomial_surface( ImageView<PixelMask<Vector2i> > const& input,
+      bool fit_2d_polynomial_surface( ImageView<PixelMask<Vector2i> > const& input,
                                       Matrix3x3* output_h, Matrix3x3* output_v,
                                       Vector2* xscaling, Vector2* yscaling) const;
 
@@ -80,20 +80,26 @@ namespace vw {
         Vector2 xscaling, yscaling;
         ImageView<PixelMask<Vector2i> > copy =
           crop(edge_extend(m_input), exp_bbox);
-        fit_2d_polynomial_surface(copy,
-                                  &polynomial_h, &polynomial_v,
-                                  &xscaling, &yscaling);
-
-        ImageView<float> fitted_h(exp_bbox.width(), exp_bbox.height()),
-          fitted_v(exp_bbox.width(), exp_bbox.height());
-        render_polynomial_surface(polynomial_h, &fitted_h);
-        render_polynomial_surface(polynomial_v, &fitted_v);
-
-        ImageView<pixel_type> smoothed_disparity(exp_bbox.width(),exp_bbox.height());
-        fill(smoothed_disparity, pixel_type(Vector2f()));
-        select_channel(smoothed_disparity, 0) = fitted_h;
-        select_channel(smoothed_disparity, 1) = fitted_v;
-
+        ImageView<pixel_type> smoothed_disparity(exp_bbox.width(),
+                                                 exp_bbox.height());
+        
+        bool ans = fit_2d_polynomial_surface(copy,
+                                             &polynomial_h, &polynomial_v,
+                                             &xscaling, &yscaling);
+        if (ans){
+          ImageView<float> fitted_h(exp_bbox.width(), exp_bbox.height()),
+            fitted_v(exp_bbox.width(), exp_bbox.height());
+          render_polynomial_surface(polynomial_h, &fitted_h);
+          render_polynomial_surface(polynomial_v, &fitted_v);
+          
+          fill(smoothed_disparity, pixel_type(Vector2f()));
+          select_channel(smoothed_disparity, 0) = fitted_h;
+          select_channel(smoothed_disparity, 1) = fitted_v;
+        }else{
+          // Could not fit a surface, return the original disparity
+          smoothed_disparity = copy;
+        }
+        
         return prerasterize_type(smoothed_disparity,
                                  -exp_bbox.min().x(), -exp_bbox.min().y(),
                                  cols(), rows());

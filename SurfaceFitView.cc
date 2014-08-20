@@ -2,7 +2,7 @@
 
 #include <ceres/ceres.h>
 
-void vw::stereo::SurfaceFitViewBase::fit_2d_polynomial_surface( ImageView<PixelMask<Vector2i> > const& input,
+bool vw::stereo::SurfaceFitViewBase::fit_2d_polynomial_surface( ImageView<PixelMask<Vector2i> > const& input,
                                                                 Matrix3x3* output_h, Matrix3x3* output_v,
                                                                 Vector2* xscaling, Vector2* yscaling) const {
   // Figure out what our scaling parameters should be
@@ -12,12 +12,13 @@ void vw::stereo::SurfaceFitViewBase::fit_2d_polynomial_surface( ImageView<PixelM
   xscaling->y() = 2.0/double(input.cols());
   yscaling->y() = 2.0/double(input.rows());
 
+  bool is_good = false;
   {
     // Build a ceres problem to fit a polynomial robustly
     ceres::Problem problem;
     for (int j = 0; j < input.rows(); j+=2) {
       for (int i = 0; i < input.cols(); i+=2 ) {
-        if (is_valid(input(i,j)))
+        if (is_valid(input(i,j))){
           problem.AddResidualBlock
             (new ceres::AutoDiffCostFunction<PolynomialSurfaceFit, 1, 9>
              (new PolynomialSurfaceFit
@@ -26,9 +27,14 @@ void vw::stereo::SurfaceFitViewBase::fit_2d_polynomial_surface( ImageView<PixelM
                (double(j) + yscaling->x()) * yscaling->y())),
              new ceres::CauchyLoss(4),
              &(*output_h)(0,0));
+          is_good = true;
+        }
       }
     }
 
+    // Quit rather than error out if there is no valid disparity
+    if (!is_good) return false;
+      
     ceres::Solver::Options options;
     options.max_num_iterations = 300;
     options.minimizer_progress_to_stdout = false;
@@ -61,6 +67,8 @@ void vw::stereo::SurfaceFitViewBase::fit_2d_polynomial_surface( ImageView<PixelM
     ceres::Solve(options, &problem, &summary);
     //std::cout << summary.BriefReport() << std::endl;
   }
+
+  return true;
 }
 
 
