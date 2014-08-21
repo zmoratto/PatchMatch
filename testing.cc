@@ -46,6 +46,8 @@ int main(int argc, char **argv) {
   BBox2i search_region(Vector2i(-566, -224),
                        Vector2i(818, 110));
 
+  BBox2i per_level_search(-4, -4, 8, 8);
+
   ImageView<PixelMask<Vector2i> > pm_disparity;
   {
     vw::Timer corr_timer("Correlation Time");
@@ -102,7 +104,7 @@ int main(int argc, char **argv) {
         block_rasterize
         (stereo::correlate(left_int, right_t,
                            stereo::NullOperation(),
-                           BBox2i(-8, -8, 16, 16),
+                           per_level_search,
                            Vector2i(13, 13), stereo::CROSS_CORRELATION, 2),
          Vector2i(256, 256));
       write_image("pmdelta"+ltag.str()+"-D.tif", pm_disparity);
@@ -149,7 +151,7 @@ int main(int argc, char **argv) {
       block_rasterize
       (stereo::correlate(left1, right1_t,
                          stereo::NullOperation(),
-                         BBox2i(-8, -8, 16, 16),
+                         per_level_search,
                          Vector2i(13, 13), stereo::CROSS_CORRELATION, 2),
        Vector2i(256, 256));
 

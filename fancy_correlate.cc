@@ -11,6 +11,7 @@ namespace po = boost::program_options;
 #include <PatchMatch2Heise.h>
 #include <SurfaceFitView.h>
 #include <IterativeMappingStereo.h>
+#include <MappingPyramidCorrelationView.h>
 
 using namespace vw;
 
@@ -75,6 +76,42 @@ int main(int argc, char **argv) {
     DiskImageView<float> left_disk_image(left_file_name );
     DiskImageView<float> right_disk_image(right_file_name );
 
+    {
+      std::cout << "Mapping -------------------------" << std::endl;
+      vw::Timer timer("Mapping");
+      block_write_image(tag + "-D.tif",
+                        stereo::mapping_pyramid_correlate(left_disk_image,
+                                                          right_disk_image,
+                                                          constant_view(uint8(255), left_disk_image),
+                                                          constant_view(uint8(255), right_disk_image),
+                                                          stereo::NullOperation(),
+                                                          BBox2i(Vector2i(h_corr_min, v_corr_min),
+                                                                 Vector2i(h_corr_max, v_corr_max)),
+                                                          Vector2i(15, 15) /* kernel size */,
+                                                          stereo::CROSS_CORRELATION,
+                                                          2, 4),
+                        TerminalProgressCallback( "", "Rendering: "));
+    }
+    exit(1);
+    {
+      std::cout << "Pyramid -------------------------" << std::endl;
+      vw::Timer timer("Pyramid");
+      block_write_image("pyramid_"+tag+"-D.tif",
+                        stereo::pyramid_correlate(left_disk_image,
+                                                  right_disk_image,
+                                                  constant_view(uint8(255), left_disk_image),
+                                                  constant_view(uint8(255), right_disk_image),
+                                                  stereo::NullOperation(),
+                                                  BBox2i(Vector2i(h_corr_min, v_corr_min),
+                                                         Vector2i(h_corr_max, v_corr_max)),
+                                                  Vector2i(15, 15) /* kernel size */,
+                                                  stereo::CROSS_CORRELATION,
+                                                  0, 0,
+                                                  2, 3),
+                        TerminalProgressCallback( "", "Rendering: "));
+    }
+    exit(1);
+
     // Actually invoke the rasterazation
     if (vm.count("patchmatch-only")) {
       vw::Timer corr_timer("Correlation Time");
@@ -109,7 +146,7 @@ int main(int argc, char **argv) {
                                                  (right_disk_image),
                                                  BBox2i(Vector2i(h_corr_min, v_corr_min),
                                                         Vector2i(h_corr_max, v_corr_max)),
-                                                    Vector2i(15, 15) /* kernel size */,
+                                                 Vector2i(15, 15) /* kernel size */,
                                                  cross_corr_thres,
                                                  pm_iterations /* number of iterations */),
                          /*map_iterations*/ 1),
