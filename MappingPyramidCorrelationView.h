@@ -266,8 +266,8 @@ namespace vw {
           // search range.
           right_roi[0] -= m_search_region.min();
           // Move the coordinate frame to be relative to the query point
-          left_roi[0] -= bbox.min();
-          right_roi[0] -= bbox.min();
+          left_roi[0] -= bbox_exp.min();
+          right_roi[0] -= bbox_exp.min();
 
           for ( int32 i = 0; i < max_pyramid_levels; ++i ) {
             left_pyramid[i+1] = subsample(separable_convolution_filter(left_pyramid[i],kernel,kernel),2);
@@ -361,19 +361,6 @@ namespace vw {
                        BBox2i(Vector2i(0, 0),
                               m_search_region.size() / max_upscaling));
 
-        BBox2i bbox_t_exp = bbox - bbox_exp.min();
-        BBox2i active_region_for_lower_tiles
-          (bbox_t_exp.min() / max_upscaling,
-           bbox_t_exp.min() / max_upscaling +
-           Vector2i(1, 1) + (bbox.size() - Vector2i(1,1)) / max_upscaling);
-        smooth_disparity =
-          crop(smooth_disparity, active_region_for_lower_tiles);
-
-        Vector2i debug_output_size =
-          Vector2i(1,1) + (bbox.size() - Vector2i(1,1)) / scaling;
-        VW_ASSERT(debug_output_size == bounding_box(smooth_disparity).size(),
-                  MathErr() << "Monkey " << debug_output_size << " " << bounding_box(smooth_disparity));
-
         // Crop to fit our scaling
 #ifdef WRITE_DEBUG
         write_image(tag+"initial_smooth-D.tif", smooth_disparity);
@@ -384,7 +371,7 @@ namespace vw {
         ImageView<PixelMask<Vector2f> > super_disparity;
         for ( int32 level = max_pyramid_levels - 1; level >= 0; --level) {
           scaling = 1 << level;
-          Vector2i output_size = Vector2i(1,1) + (bbox.size() - Vector2i(1,1)) / scaling;
+          Vector2i output_size = Vector2i(1,1) + (bbox_exp.size() - Vector2i(1,1)) / scaling;
 
           std::ostringstream ostr;
           ostr << "level" << level << "_";
@@ -492,14 +479,14 @@ namespace vw {
           }
         }
 
-        VW_ASSERT(super_disparity.cols() == bbox.width() &&
-                  super_disparity.rows() == bbox.height(),
-                  MathErr() << bounding_box(super_disparity) << " !fit in " << bbox);
+        VW_ASSERT(super_disparity.cols() == bbox_exp.width() &&
+                  super_disparity.rows() == bbox_exp.height(),
+                  MathErr() << bounding_box(super_disparity) << " !fit in " << bbox_exp);
 
 #if VW_DEBUG_LEVEL > 0
         watch.stop();
         double elapsed = watch.elapsed_seconds();
-        vw_out(DebugMessage,"stereo") << "Tile " << bbox << " processed in "
+        vw_out(DebugMessage,"stereo") << "Tile " << bbox_exp << " processed in "
                                       << elapsed << " s\n";
 #endif
 
@@ -507,7 +494,7 @@ namespace vw {
         // solution. Also we need to correct for the offset we applied
         // to the search region.
         return prerasterize_type(super_disparity + pixel_type(m_search_region.min()),
-                                 -bbox.min().x(), -bbox.min().y(),
+                                 -bbox_exp.min().x(), -bbox_exp.min().y(),
                                  cols(), rows() );
       }
 
