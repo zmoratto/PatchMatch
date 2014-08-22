@@ -34,7 +34,7 @@
 #include <vw/Stereo/PreFilter.h>
 #include <boost/foreach.hpp>
 
-#define WRITE_DEBUG 1
+//#define WRITE_DEBUG 1
 
 namespace vw {
   namespace stereo {
@@ -55,7 +55,7 @@ namespace vw {
       int m_corr_timeout;
       // How long it takes to do one corr op with given kernel and cost function
       float m_consistency_threshold; // < 0 = means don't do a consistency check
-      int32 m_max_level_by_search;
+      int32 m_padding;
 
       struct SubsampleMaskByTwoFunc : public ReturnFixedType<uint8> {
         BBox2i work_area() const { return BBox2i(0,0,2,2); }
@@ -129,20 +129,14 @@ namespace vw {
                                      BBox2i const& search_region, Vector2i const& kernel_size,
                                      CostFunctionType cost_type,
                                      float consistency_threshold,
-                                     int32 max_pyramid_levels) :
+                                     int32 max_pyramid_levels,
+                                     int32 padding) :
       m_left_image(left.impl()), m_right_image(right.impl()),
         m_left_mask(left_mask.impl()), m_right_mask(right_mask.impl()),
         m_prefilter(prefilter.impl()), m_search_region(search_region), m_kernel_size(kernel_size),
         m_cost_type(cost_type),
-        m_consistency_threshold(consistency_threshold){
-        // Calculating max pyramid levels according to the supplied
-        // search region.
-        int32 largest_search = max( search_region.size() );
-        m_max_level_by_search = std::floor(std::log(float(largest_search))/std::log(2.0f)) - 1;
-        if ( m_max_level_by_search > max_pyramid_levels )
-          m_max_level_by_search = max_pyramid_levels;
-        if ( m_max_level_by_search < 0 )
-          m_max_level_by_search = 0;
+        m_consistency_threshold(consistency_threshold),
+        m_padding(padding) {
       }
 
       // Standard required ImageView interfaces
@@ -160,7 +154,8 @@ namespace vw {
       typedef CropView<ImageView<pixel_type> > prerasterize_type;
       inline prerasterize_type prerasterize(BBox2i const& bbox) const {
 
-        std::cout << "\tRequesting bbox: " << bbox << std::endl;
+        BBox2i bbox_exp = bbox;
+        bbox_exp.expand(m_padding);
 
 #if VW_DEBUG_LEVEL > 0
         Stopwatch watch;
@@ -177,15 +172,14 @@ namespace vw {
         //      There's a maximum base on kernel size. There's also
         //      maximum defined by the search range. Here we determine
         //      the maximum based on kernel size and current bbox.
-        int32 smallest_bbox = math::min(bbox.size());
+        int32 smallest_bbox = math::min(bbox_exp.size());
+        int32 largest_bbox = math::max(bbox_exp.size());
         int32 largest_kernel = math::max(m_kernel_size);
         int32 max_pyramid_levels = std::floor(log(smallest_bbox)/log(2.0f) - log(largest_kernel)/log(2.0f));
-        int32 max_level_by_size = std::ceil(log(smallest_bbox / 64.0) / log(2.0f));
-        std::cout << "\t" << max_pyramid_levels << " " << max_level_by_size << std::endl;
-        max_pyramid_levels = std::min(max_pyramid_levels, std::min(m_max_level_by_search, max_level_by_size));
+        int32 max_level_by_size = std::ceil(log(largest_bbox / 64.0) / log(2.0f));
+        max_pyramid_levels = std::min(max_pyramid_levels, max_level_by_size);
         if ( max_pyramid_levels < 1 )
           max_pyramid_levels = 1;
-        std::cout << "Pyramid levels: " << max_pyramid_levels << std::endl;
         Vector2i half_kernel = m_kernel_size/2;
 
         // 2.0) Build the pyramid
@@ -198,7 +192,7 @@ namespace vw {
 
         int32 max_upscaling = 1 << max_pyramid_levels;
         {
-          left_roi[0] = bbox;
+          left_roi[0] = bbox_exp;
           left_roi[0].min() -= half_kernel * max_upscaling;
           left_roi[0].max() += half_kernel * max_upscaling;
           right_roi[0] = left_roi[0] + m_search_region.min();
@@ -231,7 +225,7 @@ namespace vw {
           } catch ( const ArgumentErr& err ) {
             // Mean pixel value will throw an argument error if there
             // are no valid pixels. If that happens, it means either the
-            // left or the right image is full masked.
+            // left or the right image is fullly masked.
 #if VW_DEBUG_LEVEL > 0
             watch.stop();
             double elapsed = watch.elapsed_seconds();
@@ -250,10 +244,10 @@ namespace vw {
           // Don't actually need the whole over cropped disparity
           // mask. We only need the active region. I over cropped before
           // just to calculate the mean color value options.
-          BBox2i right_mask = bbox + m_search_region.min();
+          BBox2i right_mask = bbox_exp + m_search_region.min();
           right_mask.max() += m_search_region.size();
           left_mask_pyramid[0] =
-            crop(left_mask_pyramid[0], bbox - left_roi[0].min());
+            crop(left_mask_pyramid[0], bbox_exp - left_roi[0].min());
           right_mask_pyramid[0] =
             crop(right_mask_pyramid[0], right_mask - right_roi[0].min());
 
@@ -275,7 +269,6 @@ namespace vw {
           left_roi[0] -= bbox.min();
           right_roi[0] -= bbox.min();
 
-          std::cout << "\tL0 " << left_roi[0] << " " << right_roi[0] << std::endl;
           for ( int32 i = 0; i < max_pyramid_levels; ++i ) {
             left_pyramid[i+1] = subsample(separable_convolution_filter(left_pyramid[i],kernel,kernel),2);
             right_pyramid[i+1] = subsample(separable_convolution_filter(right_pyramid[i],kernel,kernel),2);
@@ -289,7 +282,6 @@ namespace vw {
             right_roi[i+1] = BBox2i(right_roi[i].min().x() / 2, right_roi[i].min().y() / 2,
                                     1 + (right_roi[i].width() - 1) / 2,
                                     1 + (right_roi[i].height() - 1) / 2);
-            std::cout << "\tL" << i + 1 << " " << left_roi[i+1] << " " << right_roi[i+1] << std::endl;
             VW_ASSERT(left_roi[i+1].size() == Vector2i(left_pyramid[i+1].cols(),
                                                        left_pyramid[i+1].rows()),
                       MathErr() << "Left ROI doesn't match pyramid image size");
@@ -324,13 +316,12 @@ namespace vw {
         BBox2i right_region = left_region;
         right_region.max() += m_search_region.size() / max_upscaling + Vector2i(1,1);
 
-        std::cout << "\tLeft region: " << left_region << " " << bounding_box(left_pyramid[max_pyramid_levels]) << std::endl;
-        std::cout << "\tRight region: " << right_region << " " << bounding_box(right_pyramid[max_pyramid_levels]) << std::endl;
-
-
         Vector2i top_level_search = m_search_region.size() / max_upscaling + Vector2i(1,1);
 
-        ImageView<PixelMask<Vector2i> > disparity =
+        ImageView<PixelMask<Vector2i> > disparity, rl_disparity;
+        {
+          vw::Timer timer("Initial Correlation Time:");
+        disparity =
           calc_disparity(m_cost_type,
                          left_pyramid[max_pyramid_levels],
                          right_pyramid[max_pyramid_levels],
@@ -340,7 +331,7 @@ namespace vw {
                          left_roi[max_pyramid_levels]
                          - left_roi[max_pyramid_levels].min(),
                          top_level_search, m_kernel_size);
-        ImageView<PixelMask<Vector2i> > rl_disparity =
+        rl_disparity =
           calc_disparity(m_cost_type,
                          right_pyramid[max_pyramid_levels],
                          crop(edge_extend(left_pyramid[max_pyramid_levels]),
@@ -352,7 +343,9 @@ namespace vw {
         stereo::cross_corr_consistency_check(disparity,
                                              rl_disparity,
                                              m_consistency_threshold, false);
+        }
 #ifdef WRITE_DEBUG
+        std::cout << "top_level_search: " << top_level_search << std::endl;
         write_image(tag+"initial-L.tif", crop(left_pyramid[max_pyramid_levels], left_region));
         write_image(tag+"initial-R.tif", crop(right_pyramid[max_pyramid_levels], right_region));
         write_image(tag+"initial-D.tif", disparity);
@@ -367,16 +360,32 @@ namespace vw {
         blur_disparity(smooth_disparity,
                        BBox2i(Vector2i(0, 0),
                               m_search_region.size() / max_upscaling));
+
+        BBox2i bbox_t_exp = bbox - bbox_exp.min();
+        BBox2i active_region_for_lower_tiles
+          (bbox_t_exp.min() / max_upscaling,
+           bbox_t_exp.min() / max_upscaling +
+           Vector2i(1, 1) + (bbox.size() - Vector2i(1,1)) / max_upscaling);
+        smooth_disparity =
+          crop(smooth_disparity, active_region_for_lower_tiles);
+
+        Vector2i debug_output_size =
+          Vector2i(1,1) + (bbox.size() - Vector2i(1,1)) / scaling;
+        VW_ASSERT(debug_output_size == bounding_box(smooth_disparity).size(),
+                  MathErr() << "Monkey " << debug_output_size << " " << bounding_box(smooth_disparity));
+
+        // Crop to fit our scaling
 #ifdef WRITE_DEBUG
         write_image(tag+"initial_smooth-D.tif", smooth_disparity);
 #endif
-
 
         // 3.2) Starting working through the lower levels where we
         // first map the right image to the left image, the correlate.
         ImageView<PixelMask<Vector2f> > super_disparity;
         for ( int32 level = max_pyramid_levels - 1; level >= 0; --level) {
           scaling = 1 << level;
+          Vector2i output_size = Vector2i(1,1) + (bbox.size() - Vector2i(1,1)) / scaling;
+
           std::ostringstream ostr;
           ostr << "level" << level << "_";
 
@@ -385,19 +394,18 @@ namespace vw {
           // pyramid is padded by a kernel width at the top most
           // level. At this point though, we only need a kernel
           // padding at the scale we are currently at.
-          BBox2i active_left_roi = bounding_box(left_mask_pyramid[level]);
+          BBox2i active_left_roi(Vector2i(), output_size);
           active_left_roi.min() -= half_kernel;
           active_left_roi.max() += half_kernel;
 
           BBox2i active_right_roi = active_left_roi;
           active_right_roi.max() += additive_search_range.size();
-          std::cout << "\tL" << level << " Active ROI: " << active_left_roi << " " << active_right_roi << std::endl;
 
           // Upsample the previous disparity and then extrapolate the
           // disparity out so we can fill in the whole right roi that
           // we need.
           super_disparity =
-            2 * crop(resample(smooth_disparity, 2, 2), bounding_box(left_mask_pyramid[level]))
+            2 * crop(resample(smooth_disparity, 2, 2), BBox2i(Vector2i(), output_size))
             + PixelMask<Vector2f>(additive_search_range.min());
 #ifdef WRITE_DEBUG
           write_image(tag+ostr.str()+"super-D.tif", super_disparity);
@@ -519,12 +527,13 @@ namespace vw {
                                BBox2i const& search_region, Vector2i const& kernel_size,
                                CostFunctionType cost_type,
                                float consistency_threshold,
-                               int32 max_pyramid_levels) {
+                               int32 max_pyramid_levels,
+                               int32 padding ) {
       typedef MappingPyramidCorrelationView<Image1T,Image2T,Mask1T,Mask2T,PreFilterT> result_type;
       return result_type( left.impl(), right.impl(), left_mask.impl(),
                           right_mask.impl(), filter.impl(), search_region,
                           kernel_size, cost_type,
-                          consistency_threshold, max_pyramid_levels );
+                          consistency_threshold, max_pyramid_levels, padding );
     }
 
   }} // namespace vw::stereo

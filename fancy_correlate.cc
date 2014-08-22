@@ -81,16 +81,17 @@ int main(int argc, char **argv) {
       vw::Timer timer("Mapping");
       // ImageView<PixelMask<Vector2f> > disp =
       //   crop(stereo::mapping_pyramid_correlate(left_disk_image,
-      //                                                     right_disk_image,
-      //                                                     constant_view(uint8(255), left_disk_image),
-      //                                                     constant_view(uint8(255), right_disk_image),
-      //                                                     stereo::NullOperation(),
-      //                                                     BBox2i(Vector2i(h_corr_min, v_corr_min),
-      //                                                            Vector2i(h_corr_max, v_corr_max)),
-      //                                                     Vector2i(15, 15) /* kernel size */,
-      //                                                     stereo::CROSS_CORRELATION,
-      //                                          2, 4),
-      //        BBox2i(1024, 0, 512, 512));
+      //                                          right_disk_image,
+      //                                          constant_view(uint8(255), left_disk_image),
+      //                                          constant_view(uint8(255), right_disk_image),
+      //                                          stereo::NullOperation(),
+      //                                          BBox2i(Vector2i(h_corr_min, v_corr_min),
+      //                                                 Vector2i(h_corr_max, v_corr_max)),
+      //                                          Vector2i(15, 15) /* kernel size */,
+      //                                          stereo::CROSS_CORRELATION,
+      //                                            2, 4, 16),
+      //        BBox2i(2048, 3584, 512, 256));
+      // write_image("output-D.tif", disp);
       block_write_image(tag + "-D.tif",
                         stereo::mapping_pyramid_correlate(left_disk_image,
                                                           right_disk_image,
@@ -101,7 +102,7 @@ int main(int argc, char **argv) {
                                                                  Vector2i(h_corr_max, v_corr_max)),
                                                           Vector2i(15, 15) /* kernel size */,
                                                           stereo::CROSS_CORRELATION,
-                                                          2, 4),
+                                                          2, 4, 16),
                         TerminalProgressCallback( "", "Rendering: "));
     }
     exit(1);

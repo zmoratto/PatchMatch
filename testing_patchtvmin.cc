@@ -24,6 +24,19 @@ int main(int argc, char **argv) {
   BBox2i search_region(Vector2i(-70,-25),
                        Vector2i(105,46));
 
+  {
+    vw::Timer corr_timer("Correlation time");
+    DiskImageView<float>
+      ltile("troublesome_tile/2048_3584_initial-L.tif"), rtile("troublesome_tile/2048_3584_initial-R.tif");
+
+    ImageView<PixelMask<Vector2i> > solution
+      = stereo::patch_match_ncc(ltile, rtile,
+                                  BBox2i(0, 0, 91, 25),
+                                  Vector2i(15, 15), -1, 6);
+    write_image("pmheisetile-D.tif", solution);
+  }
+  exit(1);
+
   // Do only a single iteration so I can see something really noisy
   ImageView<PixelMask<Vector2i> > pm_disparity;
   {
