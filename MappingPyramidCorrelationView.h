@@ -34,7 +34,7 @@
 #include <vw/Stereo/PreFilter.h>
 #include <boost/foreach.hpp>
 
-//#define WRITE_DEBUG 1
+#define WRITE_DEBUG 1
 
 namespace vw {
   namespace stereo {
@@ -182,10 +182,10 @@ namespace vw {
         int32 max_pyramid_levels = std::floor(log(smallest_bbox)/log(2.0f) - log(largest_kernel)/log(2.0f));
         int32 max_level_by_size = std::ceil(log(smallest_bbox / 64.0) / log(2.0f));
         std::cout << "\t" << max_pyramid_levels << " " << max_level_by_size << std::endl;
-        max_pyramid_levels = std::min(max_pyramid_levels, m_max_level_by_search);
-        max_pyramid_levels = std::min(max_pyramid_levels, max_level_by_size);
+        max_pyramid_levels = std::min(max_pyramid_levels, std::min(m_max_level_by_search, max_level_by_size));
         if ( max_pyramid_levels < 1 )
-          max_pyramid_levels = 0;
+          max_pyramid_levels = 1;
+        std::cout << "Pyramid levels: " << max_pyramid_levels << std::endl;
         Vector2i half_kernel = m_kernel_size/2;
 
         // 2.0) Build the pyramid
@@ -449,7 +449,11 @@ namespace vw {
           }
 #ifdef WRITE_DEBUG
           write_image(tag+ostr.str()+"D.tif", disparity);
-          write_image(tag+ostr.str()+"invD.tif", disparity);
+          write_image(tag+ostr.str()+"invD.tif", rl_disparity);
+          write_image(tag+ostr.str()+"invD-L.tif", right_t);
+          write_image(tag+ostr.str()+"invD-R.tif", crop(edge_extend(left_pyramid[level]),
+                                                        active_left_roi - left_roi[level].min()
+                                                        - additive_search_range.size()));
 #endif
           stereo::cross_corr_consistency_check(disparity, rl_disparity,
                                                m_consistency_threshold, false);
@@ -479,6 +483,10 @@ namespace vw {
 #endif
           }
         }
+
+        VW_ASSERT(super_disparity.cols() == bbox.width() &&
+                  super_disparity.rows() == bbox.height(),
+                  MathErr() << bounding_box(super_disparity) << " !fit in " << bbox);
 
 #if VW_DEBUG_LEVEL > 0
         watch.stop();
