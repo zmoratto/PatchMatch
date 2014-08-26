@@ -129,7 +129,6 @@ namespace vw {
                                      BBox2i const& search_region, Vector2i const& kernel_size,
                                      CostFunctionType cost_type,
                                      float consistency_threshold,
-                                     int32 max_pyramid_levels,
                                      int32 padding) :
       m_left_image(left.impl()), m_right_image(right.impl()),
         m_left_mask(left_mask.impl()), m_right_mask(right_mask.impl()),
@@ -514,13 +513,12 @@ namespace vw {
                                BBox2i const& search_region, Vector2i const& kernel_size,
                                CostFunctionType cost_type,
                                float consistency_threshold,
-                               int32 max_pyramid_levels,
                                int32 padding ) {
       typedef MappingPyramidCorrelationView<Image1T,Image2T,Mask1T,Mask2T,PreFilterT> result_type;
       return result_type( left.impl(), right.impl(), left_mask.impl(),
                           right_mask.impl(), filter.impl(), search_region,
                           kernel_size, cost_type,
-                          consistency_threshold, max_pyramid_levels, padding );
+                          consistency_threshold, padding );
     }
 
   }} // namespace vw::stereo
