@@ -362,12 +362,10 @@ namespace vw {
           // Upsample the previous disparity and then extrapolate the
           // disparity out so we can fill in the whole right roi that
           // we need.
-          super_disparity =
-            2 * crop(resample(smooth_disparity, 2, 2), BBox2i(Vector2i(), output_size))
-            + PixelMask<Vector2f>(additive_search_range.min());
-
           super_disparity_exp =
-            crop(edge_extend(super_disparity), active_right_roi);
+            crop(edge_extend(2 * crop(resample(smooth_disparity, 2, 2), BBox2i(Vector2i(), output_size))
+                             + PixelMask<Vector2f>(additive_search_range.min())),
+                 active_right_roi);
 
           right_t =
               crop(transform_no_edge(crop(edge_extend(right_pyramid[level]),
@@ -395,7 +393,11 @@ namespace vw {
           stereo::cross_corr_consistency_check(disparity, rl_disparity,
                                                m_consistency_threshold, false);
 
-          super_disparity += pixel_cast<PixelMask<Vector2f> >(disparity);
+          super_disparity =
+            crop(super_disparity_exp,
+                 BBox2i(-active_right_roi.min(),
+                        -active_right_roi.min() + output_size)) +
+            pixel_cast<PixelMask<Vector2f> >(disparity);
           smooth_disparity =
             block_rasterize(stereo::surface_fit(super_disparity),
                             surface_fit_tile, 2);
@@ -411,12 +413,10 @@ namespace vw {
         BBox2i active_right_roi = active_left_roi;
         active_right_roi.max() += additive_search_range.size();
 
-        super_disparity =
-          2 * crop(resample(smooth_disparity, 2, 2), BBox2i(Vector2i(), bbox_exp.size()))
-          + PixelMask<Vector2f>(additive_search_range.min());
-
         super_disparity_exp =
-          crop(edge_extend(super_disparity), active_right_roi);
+          crop(edge_extend(2 * crop(resample(smooth_disparity, 2, 2), BBox2i(Vector2i(), bbox_exp.size()))
+                           + PixelMask<Vector2f>(additive_search_range.min())),
+               active_right_roi);
 
         right_t =
           crop(transform_no_edge(crop(edge_extend(right_pyramid[0]),
@@ -452,10 +452,11 @@ namespace vw {
 
         stereo::cross_corr_consistency_check(disparity, rl_disparity,
                                              m_consistency_threshold, false);
-        BBox2i active_region = bounding_box(super_disparity);
-        active_region.contract(m_padding);
-        super_disparity = crop(super_disparity, active_region) + pixel_cast<PixelMask<Vector2f> >(disparity);
-
+        BBox2i roi_super_disp(-active_right_roi.min().x() + m_padding,
+                              -active_right_roi.min().y() + m_padding,
+                              disparity.cols(), disparity.rows());
+        super_disparity = crop(super_disparity_exp, roi_super_disp) +
+          pixel_cast<PixelMask<Vector2f> >(disparity);
         VW_ASSERT(super_disparity.cols() == bbox.width() &&
                   super_disparity.rows() == bbox.height(),
                   MathErr() << bounding_box(super_disparity) << " !fit in " << bbox_exp);
