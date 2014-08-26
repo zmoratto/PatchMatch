@@ -320,28 +320,28 @@ namespace vw {
         ImageView<PixelMask<Vector2i> > disparity, rl_disparity;
         {
           vw::Timer timer("Initial Correlation Time:");
-        disparity =
-          calc_disparity(m_cost_type,
-                         left_pyramid[max_pyramid_levels],
-                         right_pyramid[max_pyramid_levels],
-                         /* This ROI is actually the active area we'll
-                            work over the left image image. That is
-                            including the kernel space. */
-                         left_roi[max_pyramid_levels]
-                         - left_roi[max_pyramid_levels].min(),
-                         top_level_search, m_kernel_size);
-        rl_disparity =
-          calc_disparity(m_cost_type,
-                         right_pyramid[max_pyramid_levels],
-                         crop(edge_extend(left_pyramid[max_pyramid_levels]),
-                              left_roi[max_pyramid_levels] - left_roi[max_pyramid_levels].min()
-                              - top_level_search),
-                         right_roi[max_pyramid_levels] - right_roi[max_pyramid_levels].min(),
-                         top_level_search, m_kernel_size)
-          - pixel_type(top_level_search);
-        stereo::cross_corr_consistency_check(disparity,
-                                             rl_disparity,
-                                             m_consistency_threshold, false);
+          disparity =
+            calc_disparity(m_cost_type,
+                           left_pyramid[max_pyramid_levels],
+                           right_pyramid[max_pyramid_levels],
+                           /* This ROI is actually the active area we'll
+                              work over the left image image. That is
+                              including the kernel space. */
+                           left_roi[max_pyramid_levels]
+                           - left_roi[max_pyramid_levels].min(),
+                           top_level_search, m_kernel_size);
+          rl_disparity =
+            calc_disparity(m_cost_type,
+                           right_pyramid[max_pyramid_levels],
+                           crop(edge_extend(left_pyramid[max_pyramid_levels]),
+                                left_roi[max_pyramid_levels] - left_roi[max_pyramid_levels].min()
+                                - top_level_search),
+                           right_roi[max_pyramid_levels] - right_roi[max_pyramid_levels].min(),
+                           top_level_search, m_kernel_size)
+            - pixel_type(top_level_search);
+          stereo::cross_corr_consistency_check(disparity,
+                                               rl_disparity,
+                                               m_consistency_threshold, false);
         }
 #ifdef WRITE_DEBUG
         std::cout << "top_level_search: " << top_level_search << std::endl;
@@ -518,23 +518,30 @@ namespace vw {
 #endif
         }
 
+        // Hmm calc_disparity actually copies the imagery
+        // again. Grr. There should be a speed up if I don't actually
+        // raster the right image and just let calc disparity do it.
         {
+          BBox2i render_area = active_left_roi - active_left_roi.min();
+          render_area.contract(m_padding);
           vw::Timer timer("Disparity LR");
           disparity =
             calc_disparity(m_cost_type,
                            crop(left_pyramid[0], active_left_roi - left_roi[0].min()),
-                           right_t, active_left_roi - active_left_roi.min(),
+                           right_t, render_area,
                            additive_search_range.size(), m_kernel_size);
         }
         {
           vw::Timer timer("Disparity RL");
+          BBox2i render_area = bounding_box(right_t);
+          render_area.contract(m_padding);
           rl_disparity =
             calc_disparity(m_cost_type,
                            right_t,
                            crop(edge_extend(left_pyramid[0]),
                                 active_left_roi - left_roi[0].min()
                                 - additive_search_range.size()),
-                           bounding_box(right_t),
+                           render_area,
                            additive_search_range.size(), m_kernel_size)
             - pixel_type(additive_search_range.size());
         }
@@ -551,11 +558,12 @@ namespace vw {
 #ifdef WRITE_DEBUG
         write_image(tag+"maskD.tif", disparity);
 #endif
-        super_disparity += pixel_cast<PixelMask<Vector2f> >(disparity);
+        BBox2i active_region = bounding_box(super_disparity);
+        active_region.contract(m_padding);
+        super_disparity = crop(super_disparity, active_region) + pixel_cast<PixelMask<Vector2f> >(disparity);
 
-
-        VW_ASSERT(super_disparity.cols() == bbox_exp.width() &&
-                  super_disparity.rows() == bbox_exp.height(),
+        VW_ASSERT(super_disparity.cols() == bbox.width() &&
+                  super_disparity.rows() == bbox.height(),
                   MathErr() << bounding_box(super_disparity) << " !fit in " << bbox_exp);
 
 #if VW_DEBUG_LEVEL > 0
@@ -569,7 +577,7 @@ namespace vw {
         // solution. Also we need to correct for the offset we applied
         // to the search region.
         return prerasterize_type(super_disparity + pixel_type(m_search_region.min()),
-                                 -bbox_exp.min().x(), -bbox_exp.min().y(),
+                                 -bbox.min().x(), -bbox.min().y(),
                                  cols(), rows() );
       }
 
