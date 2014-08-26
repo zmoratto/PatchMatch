@@ -341,13 +341,11 @@ namespace vw {
 
         // 3.2) Starting working through the lower levels where we
         // first map the right image to the left image, the correlate.
-        ImageView<PixelMask<Vector2f> > super_disparity;
+        ImageView<PixelMask<Vector2f> > super_disparity, super_disparity_exp;
+        ImageView<float> right_t;
         for ( int32 level = max_pyramid_levels - 1; level > 0; --level) {
           scaling = 1 << level;
           Vector2i output_size = Vector2i(1,1) + (bbox_exp.size() - Vector2i(1,1)) / scaling;
-
-          std::ostringstream ostr;
-          ostr << "level" << level << "_";
 
           // The active area is less than what we have actually
           // rendered in the pyramid tree. The reason is that the
@@ -368,38 +366,31 @@ namespace vw {
             2 * crop(resample(smooth_disparity, 2, 2), BBox2i(Vector2i(), output_size))
             + PixelMask<Vector2f>(additive_search_range.min());
 
-          ImageView<PixelMask<Vector2f> > super_disparity_exp =
+          super_disparity_exp =
             crop(edge_extend(super_disparity), active_right_roi);
 
-          ImageView<float> right_t;
-          {
-            right_t =
+          right_t =
               crop(transform_no_edge(crop(edge_extend(right_pyramid[level]),
                                           active_right_roi.min().x() - right_roi[level].min().x(),
                                           active_right_roi.min().y() - right_roi[level].min().y(),
                                           1, 1),
                                      stereo::DisparityTransform(super_disparity_exp)),
                    active_right_roi - active_right_roi.min());
-          }
 
-          {
-            disparity =
-              calc_disparity(m_cost_type,
-                             crop(left_pyramid[level], active_left_roi - left_roi[level].min()),
-                             right_t, active_left_roi - active_left_roi.min(),
-                             additive_search_range.size(), m_kernel_size);
-          }
-          {
-            rl_disparity =
-              calc_disparity(m_cost_type,
-                             right_t,
-                             crop(edge_extend(left_pyramid[level]),
-                                  active_left_roi - left_roi[level].min()
-                                  - additive_search_range.size()),
-                             bounding_box(right_t),
-                             additive_search_range.size(), m_kernel_size)
-              - pixel_type(additive_search_range.size());
-          }
+          disparity =
+            calc_disparity(m_cost_type,
+                           crop(left_pyramid[level], active_left_roi - left_roi[level].min()),
+                           right_t, active_left_roi - active_left_roi.min(),
+                           additive_search_range.size(), m_kernel_size);
+          rl_disparity =
+            calc_disparity(m_cost_type,
+                           right_t,
+                           crop(edge_extend(left_pyramid[level]),
+                                active_left_roi - left_roi[level].min()
+                                - additive_search_range.size()),
+                           bounding_box(right_t),
+                           additive_search_range.size(), m_kernel_size)
+            - pixel_type(additive_search_range.size());
 
           stereo::cross_corr_consistency_check(disparity, rl_disparity,
                                                m_consistency_threshold, false);
@@ -424,45 +415,40 @@ namespace vw {
           2 * crop(resample(smooth_disparity, 2, 2), BBox2i(Vector2i(), bbox_exp.size()))
           + PixelMask<Vector2f>(additive_search_range.min());
 
-        ImageView<PixelMask<Vector2f> > super_disparity_exp =
+        super_disparity_exp =
           crop(edge_extend(super_disparity), active_right_roi);
 
-        ImageView<float> right_t;
-        {
-          right_t =
-            crop(transform_no_edge(crop(edge_extend(right_pyramid[0]),
-                                        active_right_roi.min().x() - right_roi[0].min().x(),
-                                        active_right_roi.min().y() - right_roi[0].min().y(),
-                                        1, 1),
-                                   stereo::DisparityTransform(super_disparity_exp)),
-                 active_right_roi - active_right_roi.min());
-        }
+        right_t =
+          crop(transform_no_edge(crop(edge_extend(right_pyramid[0]),
+                                      active_right_roi.min().x() - right_roi[0].min().x(),
+                                      active_right_roi.min().y() - right_roi[0].min().y(),
+                                      1, 1),
+                                 stereo::DisparityTransform(super_disparity_exp)),
+               active_right_roi - active_right_roi.min());
 
         // Hmm calc_disparity actually copies the imagery
         // again. Grr. There should be a speed up if I don't actually
         // raster the right image and just let calc disparity do it.
-        {
-          BBox2i render_area = active_left_roi - active_left_roi.min();
-          render_area.contract(m_padding);
-          disparity =
-            calc_disparity(m_cost_type,
-                           crop(left_pyramid[0], active_left_roi - left_roi[0].min()),
-                           right_t, render_area,
-                           additive_search_range.size(), m_kernel_size);
-        }
-        {
-          BBox2i render_area = bounding_box(right_t);
-          render_area.contract(m_padding);
-          rl_disparity =
-            calc_disparity(m_cost_type,
-                           right_t,
-                           crop(edge_extend(left_pyramid[0]),
-                                active_left_roi - left_roi[0].min()
-                                - additive_search_range.size()),
-                           render_area,
-                           additive_search_range.size(), m_kernel_size)
-            - pixel_type(additive_search_range.size());
-        }
+        //
+        // Performing the final cross correlation between images. This
+        // time however only processing the region we actually need
+        // for output.
+        BBox2i render_area = active_left_roi - active_left_roi.min();
+        render_area.contract(m_padding);
+        disparity =
+          calc_disparity(m_cost_type,
+                         crop(left_pyramid[0], active_left_roi - left_roi[0].min()),
+                         right_t, render_area,
+                         additive_search_range.size(), m_kernel_size);
+        rl_disparity =
+          calc_disparity(m_cost_type,
+                         right_t,
+                         crop(edge_extend(left_pyramid[0]),
+                              active_left_roi - left_roi[0].min()
+                              - additive_search_range.size()),
+                         render_area,
+                         additive_search_range.size(), m_kernel_size)
+          - pixel_type(additive_search_range.size());
 
         stereo::cross_corr_consistency_check(disparity, rl_disparity,
                                              m_consistency_threshold, false);
