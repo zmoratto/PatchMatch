@@ -368,7 +368,7 @@ namespace vw {
         // 3.2) Starting working through the lower levels where we
         // first map the right image to the left image, the correlate.
         ImageView<PixelMask<Vector2f> > super_disparity;
-        for ( int32 level = max_pyramid_levels - 1; level >= 0; --level) {
+        for ( int32 level = max_pyramid_levels - 1; level > 0; --level) {
           scaling = 1 << level;
           Vector2i output_size = Vector2i(1,1) + (bbox_exp.size() - Vector2i(1,1)) / scaling;
 
@@ -458,25 +458,101 @@ namespace vw {
 #ifdef WRITE_DEBUG
           write_image(tag+ostr.str()+"mask_addD.tif", super_disparity);
 #endif
-          if (level != 0) {
-            smooth_disparity =
-              block_rasterize(stereo::surface_fit(super_disparity),
-                              surface_fit_tile, 2);
+          smooth_disparity =
+            block_rasterize(stereo::surface_fit(super_disparity),
+                            surface_fit_tile, 2);
 #ifdef WRITE_DEBUG
-            write_image(tag+ostr.str()+"fit-D.tif", smooth_disparity);
+          write_image(tag+ostr.str()+"fit-D.tif", smooth_disparity);
 #endif
-            copy_valid(smooth_disparity, super_disparity);
+          copy_valid(smooth_disparity, super_disparity);
 #ifdef WRITE_DEBUG
-            write_image(tag+ostr.str()+"fit_plus-D.tif", smooth_disparity);
+          write_image(tag+ostr.str()+"fit_plus-D.tif", smooth_disparity);
 #endif
-            blur_disparity(smooth_disparity,
-                           BBox2i(Vector2i(),
-                                  m_search_region.size() / scaling));
+          blur_disparity(smooth_disparity,
+                         BBox2i(Vector2i(),
+                                m_search_region.size() / scaling));
 #ifdef WRITE_DEBUG
-            write_image(tag+ostr.str()+"smooth-D.tif", smooth_disparity);
+          write_image(tag+ostr.str()+"smooth-D.tif", smooth_disparity);
 #endif
-          }
         }
+
+#ifdef WRITE_DEBUG
+        tag += "_level0_";
+#endif
+
+        BBox2i active_left_roi(Vector2i(), bbox_exp.size());
+        active_left_roi.min() -= half_kernel;
+        active_left_roi.max() += half_kernel;
+        BBox2i active_right_roi = active_left_roi;
+        active_right_roi.max() += additive_search_range.size();
+
+        super_disparity =
+          2 * crop(resample(smooth_disparity, 2, 2), BBox2i(Vector2i(), bbox_exp.size()))
+          + PixelMask<Vector2f>(additive_search_range.min());
+#ifdef WRITE_DEBUG
+        write_image(tag+"super-D.tif", super_disparity);
+#endif
+
+        ImageView<PixelMask<Vector2f> > super_disparity_exp =
+          crop(edge_extend(super_disparity), active_right_roi);
+#ifdef WRITE_DEBUG
+        write_image(tag+"super_exp-D.tif", super_disparity_exp);
+
+        write_image(tag+"L.tif",
+                    crop(left_pyramid[0], active_left_roi - left_roi[0].min()));
+        write_image(tag+"R.tif",
+                    crop(right_pyramid[0], active_right_roi - right_roi[0].min()));
+#endif
+        ImageView<float> right_t;
+        {
+          vw::Timer timer("Transform right");
+          right_t =
+            crop(transform_no_edge(crop(edge_extend(right_pyramid[0]),
+                                        active_right_roi.min().x() - right_roi[0].min().x(),
+                                        active_right_roi.min().y() - right_roi[0].min().y(),
+                                        1, 1),
+                                   stereo::DisparityTransform(super_disparity_exp)),
+                 active_right_roi - active_right_roi.min());
+#ifdef WRITE_DEBUG
+          write_image(tag+"R_tfm.tif", right_t);
+#endif
+        }
+
+        {
+          vw::Timer timer("Disparity LR");
+          disparity =
+            calc_disparity(m_cost_type,
+                           crop(left_pyramid[0], active_left_roi - left_roi[0].min()),
+                           right_t, active_left_roi - active_left_roi.min(),
+                           additive_search_range.size(), m_kernel_size);
+        }
+        {
+          vw::Timer timer("Disparity RL");
+          rl_disparity =
+            calc_disparity(m_cost_type,
+                           right_t,
+                           crop(edge_extend(left_pyramid[0]),
+                                active_left_roi - left_roi[0].min()
+                                - additive_search_range.size()),
+                           bounding_box(right_t),
+                           additive_search_range.size(), m_kernel_size)
+            - pixel_type(additive_search_range.size());
+        }
+#ifdef WRITE_DEBUG
+        write_image(tag+"D.tif", disparity);
+        write_image(tag+"invD.tif", rl_disparity);
+        write_image(tag+"invD-L.tif", right_t);
+        write_image(tag+"invD-R.tif", crop(edge_extend(left_pyramid[0]),
+                                                      active_left_roi - left_roi[0].min()
+                                                      - additive_search_range.size()));
+#endif
+        stereo::cross_corr_consistency_check(disparity, rl_disparity,
+                                             m_consistency_threshold, false);
+#ifdef WRITE_DEBUG
+        write_image(tag+"maskD.tif", disparity);
+#endif
+        super_disparity += pixel_cast<PixelMask<Vector2f> >(disparity);
+
 
         VW_ASSERT(super_disparity.cols() == bbox_exp.width() &&
                   super_disparity.rows() == bbox_exp.height(),
