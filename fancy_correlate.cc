@@ -89,7 +89,7 @@ int main(int argc, char **argv) {
                                                       Vector2i(h_corr_max, v_corr_max)),
                                                Vector2i(15, 15) /* kernel size */,
                                                stereo::CROSS_CORRELATION,
-                                               2, 16),
+                                               2, 32),
              BBox2i(2048, 3584, 512, 256));
       write_image("output-D.tif", disp);
       // block_write_image(tag + "-D.tif",
@@ -102,7 +102,7 @@ int main(int argc, char **argv) {
       //                                                            Vector2i(h_corr_max, v_corr_max)),
       //                                                     Vector2i(15, 15) /* kernel size */,
       //                                                     stereo::CROSS_CORRELATION,
-      //                                                     2, 4, 16),
+      //                                                     2, 4, 32),
       //                   TerminalProgressCallback( "", "Rendering: "));
     }
     exit(1);

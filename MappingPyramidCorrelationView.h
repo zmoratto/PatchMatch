@@ -512,8 +512,8 @@ namespace vw {
                                PreFilterBase<PreFilterT> const& filter,
                                BBox2i const& search_region, Vector2i const& kernel_size,
                                CostFunctionType cost_type,
-                               float consistency_threshold,
-                               int32 padding ) {
+                               float consistency_threshold = 2,
+                               int32 padding = 32) {
       typedef MappingPyramidCorrelationView<Image1T,Image2T,Mask1T,Mask2T,PreFilterT> result_type;
       return result_type( left.impl(), right.impl(), left_mask.impl(),
                           right_mask.impl(), filter.impl(), search_region,
