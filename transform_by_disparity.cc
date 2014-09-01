@@ -60,7 +60,10 @@ int main(int argc, char **argv) {
 
     DiskImageView<float> left_disk_image(left_file_name );
     DiskImageView<float> right_disk_image(right_file_name );
-    DiskImageView<PixelMask<Vector2f> > disparity_disk_image(disparity_file_name);
+    boost::shared_ptr<DiskImageResource>
+      disp_rsrc(DiskImageResource::open(disparity_file_name));
+    disp_rsrc->set_rescale(false);
+    DiskImageView<PixelMask<Vector2f> > disparity_disk_image(disp_rsrc);
     block_write_image(tag + "-tfm.tif",
                       crop(transform(right_disk_image,
                                           stereo::DisparityTransform
