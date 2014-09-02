@@ -290,6 +290,17 @@ namespace vw {
           right_pyramid[max_pyramid_levels] = m_prefilter.filter(right_pyramid[max_pyramid_levels]);
         }
 
+        std::cout << "BBox:     " << bbox << std::endl;
+        std::cout << "BBox Exp: " << bbox_exp << std::endl;
+        std::cout << "Padding:  " << m_padding << std::endl;
+        std::cout << "KernlSz:  " << m_kernel_size << std::endl;
+        std::cout << "SearchR:  " << m_search_region << std::endl;
+        std::cout << "PyramidL: " << max_pyramid_levels << std::endl;
+        std::cout << "LeftRoi0: " << left_roi[0] << std::endl;
+        std::cout << "RighRoi0: " << right_roi[0] << std::endl;
+        std::cout << "LeftRoi1: " << left_roi[1] << std::endl;
+        std::cout << "RighRoi1: " << right_roi[1] << std::endl;
+
         // 3.0) Actually perform correlation now
         // 3.1) Perform a dense correlation at the top most image using the original unwarped images
         int32 scaling = 1 << max_pyramid_levels;
@@ -327,6 +338,7 @@ namespace vw {
           stereo::cross_corr_consistency_check(disparity,
                                                rl_disparity,
                                                m_consistency_threshold, false);
+          write_image("level0-delta-D.tif", disparity);
         }
 
         const BBox2i additive_search_range(-8, -8, 16, 16);
@@ -346,6 +358,9 @@ namespace vw {
         for ( int32 level = max_pyramid_levels - 1; level > 0; --level) {
           scaling = 1 << level;
           Vector2i output_size = Vector2i(1,1) + (bbox_exp.size() - Vector2i(1,1)) / scaling;
+
+          std::ostringstream ostr;
+          ostr << "level" << level;
 
           // The active area is less than what we have actually
           // rendered in the pyramid tree. The reason is that the
@@ -380,6 +395,14 @@ namespace vw {
                            crop(left_pyramid[level], active_left_roi - left_roi[level].min()),
                            right_t, active_left_roi - active_left_roi.min(),
                            additive_search_range.size(), m_kernel_size);
+
+          write_image(ostr.str()+"-supersample-D.tif", super_disparity_exp);
+          write_image(ostr.str()+"-transformed-R.tif", right_t);
+          write_image(ostr.str()+"-delta-D.tif", disparity);
+          write_image(ostr.str()+"-L.tif", left_pyramid[level]);
+          std::cout << "Additive search: " << additive_search_range << std::endl;
+          std::cout << "Kernel size: "<< m_kernel_size << std::endl;
+
           rl_disparity =
             calc_disparity(m_cost_type,
                            right_t,
@@ -398,6 +421,29 @@ namespace vw {
                  BBox2i(-active_right_roi.min(),
                         -active_right_roi.min() + output_size)) +
             pixel_cast<PixelMask<Vector2f> >(disparity);
+          std::cout << active_right_roi << std::endl;
+          std::cout << bounding_box(disparity) << " " << bounding_box(super_disparity_exp) << std::endl;
+          write_image(ostr.str()+"-improved-D.tif", super_disparity);
+          {
+            ImageView<PixelMask<Vector2f> > alternative =
+              crop(super_disparity_exp,
+                   BBox2i(Vector2i(16,16),
+                          Vector2i(16,16) + output_size)) +
+              pixel_cast<PixelMask<Vector2f> >(disparity);
+            write_image(ostr.str()+"-improved-alt-D.tif",
+                        alternative);
+            ImageView<PixelMask<Vector2f> > alternative_smooth =
+              block_rasterize(stereo::surface_fit(alternative),
+                              surface_fit_tile, 2);
+            copy_valid(alternative_smooth, alternative);
+            blur_disparity(alternative_smooth,
+                           BBox2i(Vector2i(),
+                                  m_search_region.size() / scaling));
+            write_image(ostr.str()+"-blurred-alt-D.tif", alternative_smooth);
+            smooth_disparity = alternative_smooth;
+          }
+
+          /*
           smooth_disparity =
             block_rasterize(stereo::surface_fit(super_disparity),
                             surface_fit_tile, 2);
@@ -405,6 +451,9 @@ namespace vw {
           blur_disparity(smooth_disparity,
                          BBox2i(Vector2i(),
                                 m_search_region.size() / scaling));
+          */
+
+          write_image(ostr.str()+"-blurred-D.tif", smooth_disparity);
         }
 
         BBox2i active_left_roi(Vector2i(), bbox_exp.size());
@@ -454,10 +503,15 @@ namespace vw {
 
         stereo::cross_corr_consistency_check(disparity, rl_disparity,
                                              m_consistency_threshold, false);
+        write_image("level0-delta-D.tif", disparity);
+        write_image("level0-supersample-D.tif", super_disparity_exp);
         BBox2i roi_super_disp(-active_right_roi.min().x() + m_padding,
                               -active_right_roi.min().y() + m_padding,
                               disparity.cols(), disparity.rows());
-        super_disparity = crop(super_disparity_exp, roi_super_disp) +
+        std::cout << roi_super_disp << std::endl;
+        super_disparity =
+          crop(super_disparity_exp, /*roi_super_disp*/
+               BBox2i(48, 48, disparity.cols(), disparity.rows())) +
           pixel_cast<PixelMask<Vector2f> >(disparity);
         VW_ASSERT(super_disparity.cols() == bbox.width() &&
                   super_disparity.rows() == bbox.height(),

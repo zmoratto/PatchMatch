@@ -51,7 +51,7 @@ int main(int argc, char ** argv) {
   input_rsrc->set_rescale(false);
   ref_rsrc->set_rescale(false);
   DiskImageView<input_type > input_disp(input_rsrc), ref_disp(ref_rsrc);
-  std::cout << input_disp(1024,1024) << " " << ref_disp(1024,1024) << std::endl;
+  //std::cout << input_disp(1024,1024) << " " << ref_disp(1024,1024) << std::endl;
 
   block_write_image("difference-map.tif",
                     per_pixel_filter(input_disp, ref_disp, CompareDispFunc()),
