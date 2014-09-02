@@ -433,12 +433,14 @@ namespace vw {
         // Performing the final cross correlation between images. This
         // time however only processing the region we actually need
         // for output.
-        BBox2i render_area = active_left_roi - active_left_roi.min();
-        render_area.contract(m_padding);
+        BBox2i render_area_left = active_left_roi - active_left_roi.min();
+        render_area_left.contract(m_padding);
+        BBox2i render_area_right = bounding_box(right_t);
+        render_area_right.contract(m_padding);
         disparity =
           calc_disparity(m_cost_type,
                          crop(left_pyramid[0], active_left_roi - left_roi[0].min()),
-                         right_t, render_area,
+                         right_t, render_area_left,
                          additive_search_range.size(), m_kernel_size);
         rl_disparity =
           calc_disparity(m_cost_type,
@@ -446,7 +448,7 @@ namespace vw {
                          crop(edge_extend(left_pyramid[0]),
                               active_left_roi - left_roi[0].min()
                               - additive_search_range.size()),
-                         render_area,
+                         render_area_right,
                          additive_search_range.size(), m_kernel_size)
           - pixel_type(additive_search_range.size());
 
