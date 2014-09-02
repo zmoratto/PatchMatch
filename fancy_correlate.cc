@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
       //                                          stereo::NullOperation(),
       //                                          BBox2i(Vector2i(h_corr_min, v_corr_min),
       //                                                 Vector2i(h_corr_max, v_corr_max)),
-      //                                          Vector2i(15, 15) kernel size,
+      //                                          Vector2i(15, 15) /* kernel size */,
       //                                          stereo::CROSS_CORRELATION,
       //                                          2, 32),
       //        BBox2i(2048, 3584, 512, 256));
