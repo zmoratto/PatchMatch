@@ -191,16 +191,12 @@ namespace vw {
           left_pyramid[0] = crop(edge_extend(m_left_image),left_roi[0]);
           right_pyramid[0] = crop(edge_extend(m_right_image),right_roi[0]);
           left_mask_pyramid[0] =
-            crop(edge_extend(m_left_mask,ConstantEdgeExtension()),
-                 left_roi[0]);
+            crop(edge_extend(m_left_mask, ConstantEdgeExtension()), left_roi[0]);
           right_mask_pyramid[0] =
-            crop(edge_extend(m_right_mask,ConstantEdgeExtension()),
-                 right_roi[0]);
+            crop(edge_extend(m_right_mask, ConstantEdgeExtension()), right_roi[0]);
 
-#if VW_DEBUG_LEVEL > 0
-          VW_OUT(DebugMessage,"stereo") << " > Left ROI: " << left_roi[0]
-                                        << "\n > Right ROI: " << right_roi[0] << "\n";
-#endif
+          std::cout << "LROI in Global: " << left_roi[0] << std::endl;
+          std::cout << "RROI in Global: " << right_roi[0] << std::endl;
 
           // Fill in the nodata of the left and right images with a mean
           // pixel value. This helps with the edge quality of a DEM.
@@ -302,18 +298,11 @@ namespace vw {
         std::cout << "RighRoi1: " << right_roi[1] << std::endl;
 
         // 3.0) Actually perform correlation now
-        // 3.1) Perform a dense correlation at the top most image using the original unwarped images
-        int32 scaling = 1 << max_pyramid_levels;
-        Vector2i region_offset = max_upscaling * half_kernel / scaling;
-
-        BBox2i left_region = bounding_box(left_mask_pyramid[max_pyramid_levels]) + region_offset;
-        left_region.min() -= half_kernel;
-        left_region.max() += half_kernel;
-        BBox2i right_region = left_region;
-        right_region.max() += m_search_region.size() / max_upscaling + Vector2i(1,1);
-
         Vector2i top_level_search = m_search_region.size() / max_upscaling + Vector2i(1,1);
 
+        // 3.1) Perform a dense correlation at the top most image
+        // using the original unwarped images. This is the only time
+        // we'll actually use the full search range.
         ImageView<PixelMask<Vector2i> > disparity, rl_disparity;
         {
           disparity =
@@ -338,12 +327,17 @@ namespace vw {
           stereo::cross_corr_consistency_check(disparity,
                                                rl_disparity,
                                                m_consistency_threshold, false);
-          write_image("level0-delta-D.tif", disparity);
+          write_image("leveltop-delta-D.tif", disparity);
         }
 
+        // This numbers we're picked heuristically. If the additive
+        // search range was smaller though .. we would process a lot
+        // faster.
         const BBox2i additive_search_range(-8, -8, 16, 16);
         const Vector2i surface_fit_tile(32, 32);
 
+        // Solve for an 'idealized' and smooth version of the
+        // disparity so we have something nice to correlate against.
         ImageView<PixelMask<Vector2f> > smooth_disparity =
           block_rasterize(stereo::surface_fit(disparity),
                           surface_fit_tile, 2);
@@ -356,8 +350,10 @@ namespace vw {
         ImageView<PixelMask<Vector2f> > super_disparity, super_disparity_exp;
         ImageView<float> right_t;
         for ( int32 level = max_pyramid_levels - 1; level > 0; --level) {
-          scaling = 1 << level;
+          int32 scaling = 1 << level;
           Vector2i output_size = Vector2i(1,1) + (bbox_exp.size() - Vector2i(1,1)) / scaling;
+          std::cout << "Level " << level << " ---------------------------" << std::endl;
+          std::cout << output_size << std::endl;
 
           std::ostringstream ostr;
           ostr << "level" << level;
@@ -370,24 +366,40 @@ namespace vw {
           BBox2i active_left_roi(Vector2i(), output_size);
           active_left_roi.min() -= half_kernel;
           active_left_roi.max() += half_kernel;
+          std::cout << "Active L ROI: " << active_left_roi << std::endl;
 
           BBox2i active_right_roi = active_left_roi;
-          active_right_roi.max() += additive_search_range.size();
+          active_right_roi.max() += additive_search_range.max();
+          active_right_roi.min() += additive_search_range.min();
+          std::cout << "Active R ROI: " << active_right_roi << std::endl;
+          std::cout << "L_ROI: " << left_roi[level] << std::endl;
+          std::cout << "R_ROI: " << right_roi[level] << std::endl;
+          std::cout << "Input Disp Size: " << bounding_box(smooth_disparity) << std::endl;
 
           // Upsample the previous disparity and then extrapolate the
           // disparity out so we can fill in the whole right roi that
           // we need.
           super_disparity_exp =
-            crop(edge_extend(2 * crop(resample(smooth_disparity, 2, 2), BBox2i(Vector2i(), output_size))
-                             + PixelMask<Vector2f>(additive_search_range.min())),
+            crop(edge_extend(2 * crop(resample(smooth_disparity, 2, 2),
+                                      BBox2i(Vector2i(), output_size))),
                  active_right_roi);
+          std::cout << "Upsampled Disp Size: " << bounding_box(super_disparity_exp) << std::endl;
 
+          // The center crop (right after the edge extend) is because
+          // we actually want to resample just a half kernel out from
+          // the active area we care about. However the pyramid
+          // actually has a lot more imagery than we need as it was
+          // padded for a half kernel at the highest level.
+          //
+          // The crop size doesn't matter for the inner round since we
+          // need it only to shift the origin and because we are using
+          // a version of transform that doesn't call edge extend.
           right_t =
-              crop(transform_no_edge(crop(edge_extend(right_pyramid[level]),
-                                          active_right_roi.min().x() - right_roi[level].min().x(),
-                                          active_right_roi.min().y() - right_roi[level].min().y(),
-                                          1, 1),
-                                     stereo::DisparityTransform(super_disparity_exp)),
+              crop(transform_no_edge
+                   (crop(edge_extend(right_pyramid[level]),
+                         active_right_roi.min().x() - right_roi[level].min().x(),
+                         active_right_roi.min().y() - right_roi[level].min().y(), 1, 1),
+                    stereo::DisparityTransform(super_disparity_exp)),
                    active_right_roi - active_right_roi.min());
 
           disparity =
@@ -399,7 +411,8 @@ namespace vw {
           write_image(ostr.str()+"-supersample-D.tif", super_disparity_exp);
           write_image(ostr.str()+"-transformed-R.tif", right_t);
           write_image(ostr.str()+"-delta-D.tif", disparity);
-          write_image(ostr.str()+"-L.tif", left_pyramid[level]);
+          write_image(ostr.str()+"-L.tif",
+                      crop(left_pyramid[level], active_left_roi - left_roi[level].min()));
           std::cout << "Additive search: " << additive_search_range << std::endl;
           std::cout << "Kernel size: "<< m_kernel_size << std::endl;
 
@@ -415,16 +428,19 @@ namespace vw {
 
           stereo::cross_corr_consistency_check(disparity, rl_disparity,
                                                m_consistency_threshold, false);
+          write_image(ostr.str()+"-delta-fltr-D.tif", disparity);
+          write_image(ostr.str()+"-delta-rl-D.tif", rl_disparity);
 
           super_disparity =
             crop(super_disparity_exp,
                  BBox2i(-active_right_roi.min(),
                         -active_right_roi.min() + output_size)) +
-            pixel_cast<PixelMask<Vector2f> >(disparity);
-          std::cout << active_right_roi << std::endl;
-          std::cout << bounding_box(disparity) << " " << bounding_box(super_disparity_exp) << std::endl;
+            pixel_cast<PixelMask<Vector2f> >(disparity) +
+            PixelMask<Vector2f>(additive_search_range.min());
+          std::cout << "BBox of Disp: " << bounding_box(disparity) << std::endl;
+          std::cout << "BBox of SDisp:" << bounding_box(super_disparity_exp) << std::endl;
           write_image(ostr.str()+"-improved-D.tif", super_disparity);
-          {
+          /*{
             ImageView<PixelMask<Vector2f> > alternative =
               crop(super_disparity_exp,
                    BBox2i(Vector2i(16,16),
@@ -441,9 +457,8 @@ namespace vw {
                                   m_search_region.size() / scaling));
             write_image(ostr.str()+"-blurred-alt-D.tif", alternative_smooth);
             smooth_disparity = alternative_smooth;
-          }
+            }*/
 
-          /*
           smooth_disparity =
             block_rasterize(stereo::surface_fit(super_disparity),
                             surface_fit_tile, 2);
@@ -451,28 +466,33 @@ namespace vw {
           blur_disparity(smooth_disparity,
                          BBox2i(Vector2i(),
                                 m_search_region.size() / scaling));
-          */
 
           write_image(ostr.str()+"-blurred-D.tif", smooth_disparity);
-        }
+        } // end of level loop
+
+        std::cout << "Level 0 ------------------" << std::endl;
 
         BBox2i active_left_roi(Vector2i(), bbox_exp.size());
         active_left_roi.min() -= half_kernel;
         active_left_roi.max() += half_kernel;
         BBox2i active_right_roi = active_left_roi;
-        active_right_roi.max() += additive_search_range.size();
+        active_right_roi.min() += additive_search_range.min();
+        active_right_roi.max() += additive_search_range.max();
+        std::cout << "Active L ROI: " << active_left_roi << std::endl;
+        std::cout << "Active R ROI: " << active_right_roi << std::endl;
 
         super_disparity_exp =
-          crop(edge_extend(2 * crop(resample(smooth_disparity, 2, 2), BBox2i(Vector2i(), bbox_exp.size()))
-                           + PixelMask<Vector2f>(additive_search_range.min())),
+          crop(edge_extend(2 * crop(resample(smooth_disparity, 2, 2),
+                                    BBox2i(Vector2i(), bbox_exp.size()))),
                active_right_roi);
 
         right_t =
-          crop(transform_no_edge(crop(edge_extend(right_pyramid[0]),
-                                      active_right_roi.min().x() - right_roi[0].min().x(),
-                                      active_right_roi.min().y() - right_roi[0].min().y(),
-                                      1, 1),
-                                 stereo::DisparityTransform(super_disparity_exp)),
+          crop(transform_no_edge
+               (crop(edge_extend(right_pyramid[0]),
+                     active_right_roi.min().x() - right_roi[0].min().x(),
+                     active_right_roi.min().y() - right_roi[0].min().y(),
+                     1, 1),
+                stereo::DisparityTransform(super_disparity_exp)),
                active_right_roi - active_right_roi.min());
 
         // Hmm calc_disparity actually copies the imagery
@@ -508,11 +528,11 @@ namespace vw {
         BBox2i roi_super_disp(-active_right_roi.min().x() + m_padding,
                               -active_right_roi.min().y() + m_padding,
                               disparity.cols(), disparity.rows());
-        std::cout << roi_super_disp << std::endl;
+        std::cout << "ROI Super Disp: " << roi_super_disp << std::endl;
         super_disparity =
-          crop(super_disparity_exp, /*roi_super_disp*/
-               BBox2i(48, 48, disparity.cols(), disparity.rows())) +
-          pixel_cast<PixelMask<Vector2f> >(disparity);
+          crop(super_disparity_exp, roi_super_disp) +
+          pixel_cast<PixelMask<Vector2f> >(disparity) +
+          PixelMask<Vector2f>(additive_search_range.min());
         VW_ASSERT(super_disparity.cols() == bbox.width() &&
                   super_disparity.rows() == bbox.height(),
                   MathErr() << bounding_box(super_disparity) << " !fit in " << bbox_exp);
