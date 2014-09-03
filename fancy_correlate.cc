@@ -92,7 +92,11 @@ int main(int argc, char **argv) {
                                                2, 32),
              BBox2i(0, 512, 512, 512));
       write_image("output-D.tif", disp);
-      disp =
+    }
+    {
+      std::cout << "Pyramid -----------------" << std::endl;
+      vw::Timer timer("pyramid");
+      ImageView<PixelMask<Vector2f> > disp =
         crop(stereo::pyramid_correlate(left_disk_image,
                                        right_disk_image,
                                        constant_view(uint8(255), left_disk_image),
